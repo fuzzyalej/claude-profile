@@ -1,0 +1,10 @@
+# Rust build output
+/target
+
+# Local agent / session state (never share)
+/.superpowers/
+/.remember/
+
+# OS / editor cruft
+.DS_Store
+*.swp
