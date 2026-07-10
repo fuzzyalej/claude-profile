@@ -1,0 +1,12 @@
+{
+  "name": "rust-developer",
+  "description": "TDD-driven Rust development",
+  "marketplaces": {
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {}
+}
