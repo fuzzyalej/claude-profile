@@ -1,14 +1,45 @@
 # claude-profile
 
-Launch `claude` with **only** the plugins, skills, marketplaces, and MCP servers a
-profile defines. Everything else installed on your machine stays disabled for that
-session. A standalone cross-platform CLI (Rust; macOS / Linux / Windows), not a plugin.
+**Give every task its own Claude Code.** Launch `claude` with *only* the plugins, skills,
+marketplaces, and MCP servers a profile defines — everything else on your machine stays
+disabled for that session.
 
-Different terminals can run different profiles at the same time, and none of it touches
-your real `~/.claude/settings.json` beyond ordinary plugin installs.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
+![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange)
 
-See [`docs/`](./docs/README.md) for user documentation (profile authoring, full command
-reference, how it works).
+```sh
+claude-profile rust-developer      # a lean Rust session — nothing else loaded
+claude-profile frontend design     # combine profiles for a task that spans both
+claude-profile fuzzyalej/security  # install a shared profile repo, then launch it
+```
+
+A standalone cross-platform CLI (Rust; macOS / Linux / Windows) — **not** a plugin, and it
+never rewrites your real `~/.claude/settings.json` beyond ordinary plugin installs.
+
+---
+
+## Why
+
+If you use Claude Code seriously, your `~/.claude` becomes a junk drawer. Every plugin, skill,
+and MCP server you've ever installed loads into **every** session — the Rust linter you need
+today sits in context next to the Kubernetes tools, the writing skills, and the three MCP
+servers from that experiment last month. It all costs tokens, it all adds noise, and none of it
+is scoped to what you're actually doing.
+
+`claude-profile` fixes that with **profiles**: a tiny JSON file that says "for this kind of
+work, load exactly these things." Launch a profile and you get a focused session; open a second
+terminal with a different profile and the two don't interfere.
+
+- 🎯 **Focused sessions** — only the tools relevant to the task are enabled, so less context is
+  wasted and the model is less distracted.
+- 🪟 **Many at once** — different terminals run different profiles simultaneously.
+- 📦 **Shareable** — publish a profile repo; teammates `install` it and launch by name. Backed
+  by a lockfile so it resolves to the *same* plugin code across machines and over time.
+- 🧹 **Non-destructive** — profiles gate what's *enabled* at launch; your global settings and
+  installs are left intact. `status` and `gc` keep the shared install set tidy.
+- 🔍 **Honest** — it tells you exactly what it can and can't isolate (see the limitation below),
+  and warns about anything that would leak through.
 
 ## Quick start
 
@@ -22,37 +53,8 @@ claude-profile gc --dry-run            # preview cleanup of installs no profile 
 claude-profile disable rust-developer  # stop its unshared plugins loading in plain claude
 ```
 
-## Installing and launching from a profile repo (pack)
-
-A repo can hold many profiles. `install` clones the repo, keeps **only its profiles** (a root
-`profile.json` and any `profiles/*.json`) under `~/.claude-profiles/packs/<owner--repo>/`, and
-discards the rest; it doesn't launch anything, it just makes every profile in that repo
-available. If the repo has no profiles, `install` aborts with an error. You then launch one by
-name:
-
-```sh
-claude-profile install owner/repo   # fetch the pack's profiles (aborts if it has none)
-claude-profile <profile-name>       # launch the one you want
-claude-profile list                 # show every discoverable profile and which pack it's from
-```
-
-Launch resolution searches installed packs (`packs/*/profiles/<name>.json`), so it finds the
-single profile you name out of the many in the repo.
-
-The `claude-profile owner/repo` shortcut installs the pack **and** launches its *default*
-profile — but that only works when the repo has a single profile or a root `profile.json`.
-For a repo with a list of profiles it errors with `pack has multiple profiles; specify one by
-name`, so the reliable path for a multi-profile repo is the two steps above.
-
-Notes:
-
-- `install` accepts `owner/repo[#ref]` (GitHub shorthand) or a full `https://…` / `git@…` SSH
-  git URL (also `#ref`-capable). The same forms work with the `claude-profile <target>` shortcut
-  and `claude-profile show <target>`.
-- A pack stores profiles only (no `.git`), so re-run `install` to pick up upstream changes;
-  `update` doesn't refresh packs. You still select a single profile at *launch* time by name.
-- Use `claude-profile show <profile-or-repo>` to preview a profile's details and exactly what it
-  would install before launching.
+> **Tip:** `claude-profile` is a mouthful to type all day. Add `alias cpf=claude-profile` to
+> your shell. (We intentionally ship only the one binary name.)
 
 ## What a profile controls
 
@@ -84,6 +86,38 @@ Plugins and pluginDirs union; marketplaces and MCP servers merge key-by-key. If 
 define the same marketplace or MCP key with *different* values, the launch aborts and tells you
 which key and profiles conflict — it never silently picks one. Each argument can be a name or a
 repo reference, and the combined session gets its own lockfile under `~/.claude-profiles/locks/`.
+
+## Sharing profiles: repos and packs
+
+A repo can hold many profiles. `install` clones the repo, keeps **only its profiles** (a root
+`profile.json` and any `profiles/*.json`) under `~/.claude-profiles/packs/<owner--repo>/`, and
+discards the rest; it doesn't launch anything, it just makes every profile in that repo
+available. If the repo has no profiles, `install` aborts with an error. You then launch one by
+name:
+
+```sh
+claude-profile install owner/repo   # fetch the pack's profiles (aborts if it has none)
+claude-profile <profile-name>       # launch the one you want
+claude-profile list                 # show every discoverable profile and which pack it's from
+```
+
+Launch resolution searches installed packs (`packs/*/profiles/<name>.json`), so it finds the
+single profile you name out of the many in the repo.
+
+The `claude-profile owner/repo` shortcut installs the pack **and** launches its *default*
+profile — but that only works when the repo has a single profile or a root `profile.json`.
+For a repo with a list of profiles it errors with `pack has multiple profiles; specify one by
+name`, so the reliable path for a multi-profile repo is the two steps above.
+
+Notes:
+
+- `install` accepts `owner/repo[#ref]` (GitHub shorthand) or a full `https://…` / `git@…` SSH
+  git URL (also `#ref`-capable). The same forms work with the `claude-profile <target>` shortcut
+  and `claude-profile show <target>`.
+- A pack stores profiles only (no `.git`), so re-run `install` to pick up upstream changes;
+  `update` doesn't refresh packs. You still select a single profile at *launch* time by name.
+- Use `claude-profile show <profile-or-repo>` to preview a profile's details and exactly what it
+  would install before launching.
 
 ## Important limitation: your global `CLAUDE.md` and memory are NOT gated
 
@@ -206,8 +240,6 @@ cargo install claude-profile
 
 The generator config lives in `Cargo.toml` under `[workspace.metadata.dist]`.
 
-See the shell alias tip below for a shorter name to type.
-
 ## Uninstalling
 
 The built-in command:
@@ -238,13 +270,6 @@ Either way, **this does NOT remove plugins provisioned into `~/.claude`**. Run
 - [How it works](docs/how-it-works.md) — the isolation model, provisioning, pinning, and known limitations.
 - [Statusline snippet](docs/statusline.md) — show the active profile in your Claude Code statusline.
 
-## Note on the name
+## License
 
-The binary is `claude-profile` everywhere (installers included). It's a bit long to type,
-so a shell alias helps:
-
-```sh
-alias cpf=claude-profile
-```
-
-We intentionally don't ship a second binary name.
+MIT — see [LICENSE](./LICENSE).

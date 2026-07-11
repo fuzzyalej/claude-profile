@@ -1,6 +1,6 @@
 [package]
 name = "claude-profile"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Launch claude with only the plugins, skills, and MCP servers a profile defines"
 license = "MIT"

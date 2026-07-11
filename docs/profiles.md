@@ -4,6 +4,10 @@ A profile is a small JSON file that tells `claude-profile` exactly which plugins
 marketplaces, and MCP servers should be active for a session. Everything else installed on
 the machine is explicitly disabled for that launch.
 
+> **In a hurry?** `claude-profile new <name>` scaffolds an empty profile in
+> `~/.claude-profiles/` with every field present and ready to fill in — see
+> [`new`](commands.md#new).
+
 ## Where profiles live
 
 `claude-profile <name>` resolves `<name>.json` by searching, in order (first match wins):
