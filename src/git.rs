@@ -6,6 +6,9 @@ pub struct RepoRef {
     pub owner: String,
     pub repo: String,
     pub git_ref: Option<String>,
+    /// Explicit clone URL for ssh/https sources; `None` for `owner/repo` shorthand
+    /// (which clones from github.com).
+    pub url: Option<String>,
 }
 
 impl RepoRef {
@@ -13,21 +16,54 @@ impl RepoRef {
         format!("{}--{}", self.owner, self.repo)
     }
     pub fn clone_url(&self) -> String {
-        format!("https://github.com/{}/{}.git", self.owner, self.repo)
+        self.url
+            .clone()
+            .unwrap_or_else(|| format!("https://github.com/{}/{}.git", self.owner, self.repo))
     }
 }
 
+/// Parse a profile-repo source into a `RepoRef`. Accepts three forms, each with an
+/// optional trailing `#ref`:
+/// - `owner/repo` shorthand (cloned from github.com)
+/// - `https://host/owner/repo(.git)` URL
+/// - `git@host:path/owner/repo(.git)` SSH URL
 pub fn parse_repo_ref(s: &str) -> anyhow::Result<RepoRef> {
     let (path, git_ref) = match s.split_once('#') {
         Some((p, r)) if !r.is_empty() => (p, Some(r.to_string())),
         Some((_, _)) => anyhow::bail!("empty ref after '#' in '{s}'"),
         None => (s, None),
     };
+
+    if path.contains("://") || path.starts_with("git@") {
+        let (owner, repo) = owner_repo_from_url(path)
+            .ok_or_else(|| anyhow::anyhow!("could not parse owner/repo from URL '{s}'"))?;
+        return Ok(RepoRef { owner, repo, git_ref, url: Some(path.to_string()) });
+    }
+
     let parts: Vec<&str> = path.split('/').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-        anyhow::bail!("expected owner/repo[#ref], got '{s}'");
+        anyhow::bail!("expected owner/repo[#ref], https://… or git@…, got '{s}'");
     }
-    Ok(RepoRef { owner: parts[0].to_string(), repo: parts[1].to_string(), git_ref })
+    Ok(RepoRef { owner: parts[0].to_string(), repo: parts[1].to_string(), git_ref, url: None })
+}
+
+/// Extract the trailing `owner`, `repo` segments from an ssh or https git URL.
+fn owner_repo_from_url(url: &str) -> Option<(String, String)> {
+    // Reduce to the path after the host: for scp-style ssh take everything after the
+    // first ':'; for https take everything after "://host/".
+    let path = if let Some(rest) = url.strip_prefix("git@") {
+        rest.split_once(':').map(|(_host, p)| p)?
+    } else {
+        let after_scheme = url.split_once("://").map(|(_s, r)| r)?;
+        after_scheme.split_once('/').map(|(_host, p)| p)?
+    };
+    let mut segs: Vec<&str> = path.trim_end_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+    let repo = segs.pop()?.trim_end_matches(".git");
+    let owner = segs.pop()?;
+    if repo.is_empty() || owner.is_empty() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
 }
 
 pub trait GitCli {
@@ -35,6 +71,10 @@ pub trait GitCli {
     fn pull(&self, repo: &Path) -> anyhow::Result<()>;
     fn head_sha(&self, repo: &Path) -> anyhow::Result<String>;
     fn checkout(&self, repo: &Path, git_ref: &str) -> anyhow::Result<()>;
+    /// Whether `repo` is a git checkout. Some marketplaces (e.g. the official
+    /// `anthropics/claude-plugins-official`) are installed without a `.git`, so
+    /// SHA pinning must be skipped rather than failing on `rev-parse`.
+    fn is_repo(&self, repo: &Path) -> bool;
 }
 
 pub struct RealGit;
@@ -68,6 +108,10 @@ impl GitCli for RealGit {
     fn checkout(&self, repo: &Path, git_ref: &str) -> anyhow::Result<()> {
         self.run(&["checkout", git_ref], Some(repo)).map(|_| ())
     }
+    fn is_repo(&self, repo: &Path) -> bool {
+        // A `.git` entry is a dir for normal clones and a file for worktrees/submodules.
+        repo.join(".git").exists()
+    }
 }
 
 #[cfg(test)]
@@ -96,5 +140,40 @@ mod tests {
         assert!(parse_repo_ref("noslash").is_err());
         assert!(parse_repo_ref("a/b/c").is_err());
         assert!(parse_repo_ref("/empty").is_err());
+    }
+
+    #[test]
+    fn parses_https_url() {
+        let r = parse_repo_ref("https://github.com/fuzzyalej/diagon-alley.git").unwrap();
+        assert_eq!(r.owner, "fuzzyalej");
+        assert_eq!(r.repo, "diagon-alley");
+        assert_eq!(r.pack_dir_name(), "fuzzyalej--diagon-alley");
+        assert_eq!(r.clone_url(), "https://github.com/fuzzyalej/diagon-alley.git");
+        assert_eq!(r.git_ref, None);
+    }
+
+    #[test]
+    fn parses_https_url_with_ref() {
+        let r = parse_repo_ref("https://gitlab.com/acme/tools#v2").unwrap();
+        assert_eq!(r.owner, "acme");
+        assert_eq!(r.repo, "tools");
+        assert_eq!(r.git_ref.as_deref(), Some("v2"));
+        assert_eq!(r.clone_url(), "https://gitlab.com/acme/tools"); // ref stripped from url
+    }
+
+    #[test]
+    fn parses_ssh_scp_url_with_nested_path() {
+        let r = parse_repo_ref("git@ssh.dev.azure.com:v3/MjolnerDEV/MIA-Tools/mia-marketplace").unwrap();
+        assert_eq!(r.owner, "MIA-Tools");
+        assert_eq!(r.repo, "mia-marketplace");
+        assert_eq!(r.pack_dir_name(), "MIA-Tools--mia-marketplace");
+        assert_eq!(r.clone_url(), "git@ssh.dev.azure.com:v3/MjolnerDEV/MIA-Tools/mia-marketplace");
+    }
+
+    #[test]
+    fn owner_repo_shorthand_has_no_explicit_url() {
+        let r = parse_repo_ref("o/r").unwrap();
+        assert_eq!(r.url, None);
+        assert_eq!(r.clone_url(), "https://github.com/o/r.git");
     }
 }

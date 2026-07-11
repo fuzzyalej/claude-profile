@@ -3,6 +3,7 @@ use claude::ClaudeCli;
 use std::path::PathBuf;
 
 mod claude;
+mod combine;
 mod commands;
 mod enablement;
 mod extends;
@@ -21,8 +22,9 @@ mod resolve;
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
-    /// Profile name to launch (when no subcommand is given).
-    profile: Option<String>,
+    /// Profile name(s) to launch (when no subcommand is given). Give several to launch a
+    /// combined session; each may be a profile name or a repo reference (owner/repo, URL).
+    profiles: Vec<String>,
     /// Skip the provisioning confirmation prompt.
     #[arg(long)]
     yes: bool,
@@ -35,6 +37,9 @@ struct Cli {
 enum Command {
     /// List available profiles and their sources.
     List,
+    /// Show a profile's details and what it would install. TARGET is a profile
+    /// name or a repo reference (owner/repo[#ref], https://…, or git@…).
+    Show { target: String },
     /// Install or refresh a profile repo (owner/repo[#ref]) without launching.
     Install { spec: String },
     /// Git-pull profile repos and re-resolve floating marketplaces.
@@ -45,6 +50,15 @@ enum Command {
     },
     /// Show installed plugins/marketplaces and which profiles reference each.
     Status,
+    /// Disable (in global settings) a profile's plugins that no other profile uses,
+    /// so plain `claude` sessions don't load them. They stay installed; launching the
+    /// profile re-enables them for that session.
+    Disable {
+        profile: String,
+        /// Report what would be disabled without writing settings.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Uninstall plugins/marketplaces no profile references.
     Gc {
         #[arg(long)]
@@ -116,6 +130,10 @@ fn run() -> anyhow::Result<i32> {
             commands::list::run(&paths, &cwd, env.as_deref(), &examples)?;
             Ok(0)
         }
+        Some(Command::Show { target }) => {
+            commands::show::run(&target, &paths, &cwd, env.as_deref(), &examples)?;
+            Ok(0)
+        }
         Some(Command::Install { spec }) => {
             let dir = pack::install_pack(&git::RealGit, &spec, &paths)?;
             println!("installed pack at {}", dir.display());
@@ -135,6 +153,10 @@ fn run() -> anyhow::Result<i32> {
             let refmap = refmap::build_refmap(&profiles);
             let referenced: Vec<String> = refmap.plugin_refs.keys().cloned().collect();
             commands::self_uninstall::run(&paths, purge, &referenced)?;
+            Ok(0)
+        }
+        Some(Command::Disable { profile, dry_run }) => {
+            handle_disable(&profile, dry_run, &paths, &cwd, env.as_deref(), &examples)?;
             Ok(0)
         }
         Some(Command::Status) => {
@@ -186,18 +208,30 @@ fn run() -> anyhow::Result<i32> {
             }
             Ok(0)
         }
-        None => {
-            let name = cli.profile
-                .ok_or_else(|| anyhow::anyhow!("no profile given (try `claude-profile list`)"))?;
-            // owner/repo sugar: install-if-needed, then launch its default profile.
-            if name.contains('/') {
-                let dir = pack::install_pack(&git::RealGit, &name, &paths)?;
-                let default = pack::default_profile_name(&dir)?;
-                return launch_profile(&default, cli.yes, &cli.extra, &paths, &cwd, env.as_deref(), &examples);
-            }
-            launch_profile(&name, cli.yes, &cli.extra, &paths, &cwd, env.as_deref(), &examples)
-        }
+        None => handle_launch(&cli.profiles, cli.yes, &cli.extra, &paths, &cwd, env.as_deref(), &examples),
     }
+}
+
+fn handle_disable(
+    profile: &str,
+    dry_run: bool,
+    paths: &fs_paths::Paths,
+    cwd: &std::path::Path,
+    env: Option<&std::path::Path>,
+    examples: &std::path::Path,
+) -> anyhow::Result<()> {
+    let (profiles, failed) = profiles_for_refmap(paths, cwd, env, examples);
+    for (path, err) in &failed {
+        eprintln!("warning: could not parse profile {}: {err}", path.display());
+    }
+    // Expand `extends` so inherited plugins count toward the shared set.
+    let expanded: Vec<(String, profile::Profile)> = profiles
+        .iter()
+        .filter_map(|(name, p)| {
+            resolve_extends_or_warn(name, p, paths, cwd, env, examples).map(|rp| (name.clone(), rp))
+        })
+        .collect();
+    commands::disable::run(paths, &expanded, profile, dry_run)
 }
 
 fn handle_update(
@@ -268,8 +302,10 @@ fn resolve_extends_or_warn(
     }
 }
 
-fn launch_profile(
-    name: &str,
+/// Dispatch a launch: no args prints help, one arg launches a single profile (with the
+/// owner/repo sugar), several launch a combined session.
+fn handle_launch(
+    names: &[String],
     assume_yes: bool,
     extra: &[String],
     paths: &fs_paths::Paths,
@@ -277,33 +313,76 @@ fn launch_profile(
     env: Option<&std::path::Path>,
     examples: &std::path::Path,
 ) -> anyhow::Result<i32> {
-    let resolved = resolve::resolve(name, paths, cwd, env, examples)?;
-    let source = resolved.source.clone();
-    let profile_path = resolved.path.clone();
-    let profile = resolved.profile;
-    let profile = extends::resolve_extends(profile, &|parent| {
+    match names {
+        [] => {
+            use clap::CommandFactory;
+            Cli::command().print_help()?;
+            println!();
+            Ok(0)
+        }
+        [name] => {
+            let one = resolve_one(name, paths, cwd, env, examples)?;
+            let lock_file = lock::lock_path(&one.key, &one.path, &one.source, paths);
+            provision_pin_launch(&one.profile, &one.key, &lock_file, assume_yes, extra, paths)
+        }
+        _ => launch_combined(names, assume_yes, extra, paths, cwd, env, examples),
+    }
+}
+
+/// A resolved launch target: its display key, `extends`-expanded profile, and the source
+/// file/origin (used to place a single profile's lockfile).
+struct ResolvedTarget {
+    key: String,
+    profile: profile::Profile,
+    path: std::path::PathBuf,
+    source: resolve::ProfileSource,
+}
+
+/// Resolve one launch target (a profile name, or an owner/repo/URL installed as a pack).
+fn resolve_one(
+    name: &str,
+    paths: &fs_paths::Paths,
+    cwd: &std::path::Path,
+    env: Option<&std::path::Path>,
+    examples: &std::path::Path,
+) -> anyhow::Result<ResolvedTarget> {
+    let key = if name.contains('/') {
+        let dir = pack::install_pack(&git::RealGit, name, paths)?;
+        pack::default_profile_name(&dir)?
+    } else {
+        name.to_string()
+    };
+    let resolved = resolve::resolve(&key, paths, cwd, env, examples)?;
+    let (path, source) = (resolved.path.clone(), resolved.source.clone());
+    let profile = extends::resolve_extends(resolved.profile, &|parent| {
         Ok(resolve::resolve(parent, paths, cwd, env, examples)?.profile)
     })?;
+    Ok(ResolvedTarget { key, profile, path, source })
+}
 
-    let cli = claude::RealClaude::new();
-    provision::provision(&cli, &profile, assume_yes)?;
+/// Resolve several targets, merge them into one effective profile, and launch it with a
+/// combined lockfile under `~/.claude-profiles/locks/`.
+fn launch_combined(
+    names: &[String],
+    assume_yes: bool,
+    extra: &[String],
+    paths: &fs_paths::Paths,
+    cwd: &std::path::Path,
+    env: Option<&std::path::Path>,
+    examples: &std::path::Path,
+) -> anyhow::Result<i32> {
+    let mut resolved = Vec::new();
+    for name in names {
+        let t = resolve_one(name, paths, cwd, env, examples)?;
+        resolved.push((t.key, t.profile));
+    }
+    let combined = combine::combine_profiles(&resolved)?;
+    let key = combined.name.clone();
+    let lock_file = paths.locks_dir().join(format!("{key}.lock"));
+    provision_pin_launch(&combined, &key, &lock_file, assume_yes, extra, paths)
+}
 
-    // --- pinning ---
-    let lock_file = lock::lock_path(name, &profile_path, &source, paths);
-    let mut lock = lock::Lockfile::load(&lock_file)?.unwrap_or_else(|| lock::Lockfile::new(name));
-    let installed_mkts = cli.list_marketplaces()?;
-    let mkt_by_name: std::collections::BTreeMap<String, std::path::PathBuf> =
-        installed_mkts_install_dirs(&cli)?;
-    ensure_marketplaces_installed(&profile, &mkt_by_name)?;
-    let dir_lookup = |n: &str| mkt_by_name.get(n).cloned().unwrap_or_default();
-    provision::pin_marketplaces(&git::RealGit, &profile, &installed_mkts, &dir_lookup, &mut lock, false)?;
-    lock.save(&lock_file)?;
-    // --- end pinning ---
-
-    let installed = cli.list_plugins()?;
-    let skills = enablement::scan_skills_dir(&paths.claude_skills_dir());
-    let en = enablement::build(&profile, &installed, &skills);
-
+fn print_enablement_warnings(en: &enablement::Enablement) {
     if !en.leaking_skills.is_empty() {
         eprintln!("WARNING: these manifest-less skills load in EVERY session and cannot be gated:");
         for s in &en.leaking_skills {
@@ -317,9 +396,39 @@ fn launch_profile(
             eprintln!("  - {id}");
         }
     }
+}
 
-    let args = launch::build_args(&profile, &en, extra);
-    launch::spawn(name, &args)
+/// Shared launch tail: provision the profile, pin its marketplaces into `lock_file`, warn
+/// about leaking skills / suppressed MCP, then spawn `claude` for the session.
+fn provision_pin_launch(
+    profile: &profile::Profile,
+    key: &str,
+    lock_file: &std::path::Path,
+    assume_yes: bool,
+    extra: &[String],
+    paths: &fs_paths::Paths,
+) -> anyhow::Result<i32> {
+    let cli = claude::RealClaude::new();
+    provision::provision(&cli, profile, assume_yes)?;
+
+    let mut lock = lock::Lockfile::load(lock_file)?.unwrap_or_else(|| lock::Lockfile::new(key));
+    let installed_mkts = cli.list_marketplaces()?;
+    let mkt_by_name = installed_mkts_install_dirs(&cli)?;
+    ensure_marketplaces_installed(profile, &mkt_by_name)?;
+    let dir_lookup = |n: &str| mkt_by_name.get(n).cloned().unwrap_or_default();
+    provision::pin_marketplaces(&git::RealGit, profile, &installed_mkts, &dir_lookup, &mut lock, false)?;
+    if let Some(parent) = lock_file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    lock.save(lock_file)?;
+
+    let installed = cli.list_plugins()?;
+    let skills = enablement::scan_skills_dir(&paths.claude_skills_dir());
+    let en = enablement::build(profile, &installed, &skills);
+    print_enablement_warnings(&en);
+
+    let args = launch::build_args(profile, &en, extra);
+    launch::spawn(key, &args)
 }
 
 /// Fail fast with a clear error if a profile references a marketplace that

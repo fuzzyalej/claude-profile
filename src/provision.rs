@@ -81,18 +81,21 @@ pub fn pin_marketplaces<G: GitCli>(
         let repo_ref = parse_repo_ref(source)?;
         let dir = mkt_install_dir(name);
 
-        // Determine the target commit-ish to check out (None = leave at current HEAD).
-        let target: Option<String> = if !update_floating {
-            if let Some(locked) = lock.marketplaces.get(name) {
-                Some(locked.sha.clone())            // reproduce the locked SHA
-            } else {
-                repo_ref.git_ref.clone()            // first lock: honor explicit #ref
-            }
-        } else {
-            // update: floating marketplaces move to HEAD; explicitly-pinned stay at their ref
-            repo_ref.git_ref.clone()
-        };
+        // Some marketplaces (e.g. the official `anthropics/claude-plugins-official`)
+        // are installed without a `.git`, so there is no HEAD to pin. Record the
+        // marketplace as unpinned and continue rather than failing the launch.
+        if !git.is_repo(&dir) {
+            eprintln!(
+                "WARNING: marketplace '{name}' at {} is not a git checkout; recording unpinned (not reproducible)",
+                dir.display()
+            );
+            lock.marketplaces
+                .insert(name.clone(), LockedMarketplace { source: source.clone(), sha: String::new() });
+            continue;
+        }
 
+        // Determine the target commit-ish to check out (None = leave at current HEAD).
+        let target = checkout_target(update_floating, lock.marketplaces.get(name), &repo_ref.git_ref);
         if let Some(ref t) = target {
             git.checkout(&dir, t)?;
         }
@@ -100,6 +103,23 @@ pub fn pin_marketplaces<G: GitCli>(
         lock.marketplaces.insert(name.clone(), LockedMarketplace { source: source.clone(), sha });
     }
     Ok(())
+}
+
+/// Which commit-ish to check out before recording a marketplace's SHA (None = leave at HEAD).
+/// On update, floating marketplaces move to HEAD while explicit `#ref`s stay pinned; otherwise
+/// a previously-locked SHA is reproduced, falling back to the profile's explicit `#ref`.
+fn checkout_target(
+    update_floating: bool,
+    locked: Option<&LockedMarketplace>,
+    explicit_ref: &Option<String>,
+) -> Option<String> {
+    if update_floating {
+        return explicit_ref.clone();
+    }
+    match locked {
+        Some(l) => Some(l.sha.clone()),
+        None => explicit_ref.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -156,11 +176,18 @@ mod tests {
     struct MockGit {
         head: String,
         checkouts: RefCell<Vec<(PathBuf, String)>>,
+        present: bool,
+    }
+    impl MockGit {
+        fn new(head: &str) -> Self {
+            MockGit { head: head.into(), checkouts: RefCell::new(vec![]), present: true }
+        }
     }
     impl GitCli for MockGit {
         fn clone(&self, _u: &str, _d: &Path) -> anyhow::Result<()> { Ok(()) }
         fn pull(&self, _r: &Path) -> anyhow::Result<()> { Ok(()) }
         fn head_sha(&self, _r: &Path) -> anyhow::Result<String> { Ok(self.head.clone()) }
+        fn is_repo(&self, _r: &Path) -> bool { self.present }
         fn checkout(&self, r: &Path, gr: &str) -> anyhow::Result<()> {
             self.checkouts.borrow_mut().push((r.to_path_buf(), gr.to_string())); Ok(())
         }
@@ -170,7 +197,7 @@ mod tests {
     fn pins_explicit_ref_and_records_sha() {
         let profile = crate::profile::Profile::from_json_str(
             r#"{"name":"p","marketplaces":{"m":"o/r#v1"}}"#).unwrap();
-        let git = MockGit { head: "sha_after_v1".into(), checkouts: RefCell::new(vec![]) };
+        let git = MockGit::new("sha_after_v1");
         let dir = |_n: &str| PathBuf::from("/mkts/m");
         let mut lock = crate::lock::Lockfile::new("p");
         pin_marketplaces(&git, &profile, &[], &dir, &mut lock, false).unwrap();
@@ -184,7 +211,7 @@ mod tests {
         let profile = crate::profile::Profile::from_json_str(
             r#"{"name":"p","marketplaces":{"m":"o/r"}}"#).unwrap(); // floating source
         // after checkout(locked_sha), HEAD is at locked_sha, so head_sha() returns it too
-        let git = MockGit { head: "locked_sha".into(), checkouts: RefCell::new(vec![]) };
+        let git = MockGit::new("locked_sha");
         let dir = |_n: &str| PathBuf::from("/mkts/m");
         let mut lock = crate::lock::Lockfile::new("p");
         lock.marketplaces.insert("m".into(),
@@ -199,7 +226,7 @@ mod tests {
     fn update_floating_moves_to_current_head() {
         let profile = crate::profile::Profile::from_json_str(
             r#"{"name":"p","marketplaces":{"m":"o/r"}}"#).unwrap();
-        let git = MockGit { head: "new_head".into(), checkouts: RefCell::new(vec![]) };
+        let git = MockGit::new("new_head");
         let dir = |_n: &str| PathBuf::from("/mkts/m");
         let mut lock = crate::lock::Lockfile::new("p");
         lock.marketplaces.insert("m".into(),
@@ -214,7 +241,7 @@ mod tests {
     fn locked_sha_wins_over_explicit_ref() {
         let profile = crate::profile::Profile::from_json_str(
             r#"{"name":"p","marketplaces":{"m":"o/r#v2"}}"#).unwrap(); // explicit ref
-        let git = MockGit { head: "head_sha".into(), checkouts: RefCell::new(vec![]) };
+        let git = MockGit::new("head_sha");
         let dir = |_n: &str| PathBuf::from("/mkts/m");
         let mut lock = crate::lock::Lockfile::new("p");
         lock.marketplaces.insert("m".into(),
@@ -226,10 +253,28 @@ mod tests {
     }
 
     #[test]
+    fn non_git_marketplace_degrades_gracefully() {
+        // The official marketplace is installed without a `.git`; pinning must be
+        // skipped (recorded unpinned) instead of failing the whole launch.
+        let profile = crate::profile::Profile::from_json_str(
+            r#"{"name":"p","marketplaces":{"m":"o/r"}}"#).unwrap();
+        let mut git = MockGit::new("SHOULD_NOT_BE_USED");
+        git.present = false; // dir exists but isn't a git checkout
+        let dir = |_n: &str| PathBuf::from("/mkts/m");
+        let mut lock = crate::lock::Lockfile::new("p");
+        pin_marketplaces(&git, &profile, &[], &dir, &mut lock, false).unwrap();
+        // no checkout attempted, and the lock records the marketplace as unpinned
+        assert!(git.checkouts.borrow().is_empty());
+        let locked = lock.marketplaces.get("m").expect("marketplace still recorded in lock");
+        assert_eq!(locked.sha, "");
+        assert_eq!(locked.source, "o/r");
+    }
+
+    #[test]
     fn update_floating_keeps_explicit_ref_pinned() {
         let profile = crate::profile::Profile::from_json_str(
             r#"{"name":"p","marketplaces":{"m":"o/r#v3"}}"#).unwrap(); // explicit ref
-        let git = MockGit { head: "new_head".into(), checkouts: RefCell::new(vec![]) };
+        let git = MockGit::new("new_head");
         let dir = |_n: &str| PathBuf::from("/mkts/m");
         let mut lock = crate::lock::Lockfile::new("p");
         lock.marketplaces.insert("m".into(),

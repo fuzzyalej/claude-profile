@@ -52,6 +52,7 @@ pub fn resolve_extends(
     Ok(Profile {
         name: profile.name,
         description: profile.description.or(parent.description),
+        author: profile.author.or(parent.author),
         extends: None,
         marketplaces,
         plugins,

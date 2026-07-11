@@ -15,6 +15,9 @@ pub struct Profile {
     #[allow(dead_code)]
     #[serde(default)]
     pub description: Option<String>,
+    /// Optional profile author, shown by `show`. Falls back to the source repo owner.
+    #[serde(default)]
+    pub author: Option<String>,
     // Phase 2/3: profile inheritance (`extends`) resolution.
     #[allow(dead_code)]
     #[serde(default)]
@@ -59,13 +62,14 @@ mod tests {
     #[test]
     fn parses_full_profile_with_marketplaces_and_bare() {
         let json = r#"{
-            "name": "x", "description": "d",
+            "name": "x", "description": "d", "author": "alice",
             "marketplaces": { "m": "owner/repo#v1" },
             "plugins": ["a@m"], "removePlugins": ["b@m"],
             "pluginDirs": ["vendor/x"], "mcpServers": { "s": { "command": "echo" } },
             "bare": true
         }"#;
         let p = Profile::from_json_str(json).unwrap();
+        assert_eq!(p.author.as_deref(), Some("alice"));
         assert_eq!(p.marketplaces.get("m").unwrap(), "owner/repo#v1");
         assert_eq!(p.remove_plugins, vec!["b@m"]);
         assert_eq!(p.plugin_dirs, vec!["vendor/x"]);

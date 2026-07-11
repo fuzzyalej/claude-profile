@@ -1,4 +1,6 @@
+pub mod disable;
 pub mod list;
+pub mod show;
 pub mod status;
 pub mod gc;
 pub mod remove;

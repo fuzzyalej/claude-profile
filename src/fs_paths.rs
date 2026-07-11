@@ -24,6 +24,10 @@ impl Paths {
         self.home.join(".claude").join("skills")
     }
 
+    pub fn claude_settings_path(&self) -> PathBuf {
+        self.home.join(".claude").join("settings.json")
+    }
+
     // Phase 2/3: profile locking (concurrent-launch guard) will use this.
     #[allow(dead_code)]
     pub fn locks_dir(&self) -> PathBuf {
@@ -41,6 +45,7 @@ mod tests {
         let p = Paths::from_home(PathBuf::from("/h"));
         assert_eq!(p.user_profiles_dir(), PathBuf::from("/h/.claude-profiles"));
         assert_eq!(p.claude_skills_dir(), PathBuf::from("/h/.claude/skills"));
+        assert_eq!(p.claude_settings_path(), PathBuf::from("/h/.claude/settings.json"));
         assert_eq!(p.locks_dir(), PathBuf::from("/h/.claude-profiles/locks"));
     }
 }

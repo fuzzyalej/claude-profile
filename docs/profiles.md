@@ -50,7 +50,8 @@ the session.
 |---|---|---|
 | `name` | string, required | Profile name. Should match the filename (without `.json`). |
 | `description` | string, optional | Human-readable summary shown by tooling. |
-| `marketplaces` | object, optional | Maps a local marketplace name to its source: `owner/repo` (floating, tracks the default branch) or `owner/repo#ref` (pinned to a tag/branch/SHA, checked out at that ref and never silently moved). |
+| `author` | string, optional | Profile author, shown by [`show`](commands.md#show). When absent, `show` falls back to the source repo owner (for pack/URL profiles), else `—`. |
+| `marketplaces` | object, optional | Maps a local marketplace name to its source: `owner/repo` (floating, tracks the default branch), `owner/repo#ref` (pinned to a tag/branch/SHA, checked out at that ref and never silently moved), or a full `https://…` / `git@…` SSH git URL (also `#ref`-capable). |
 | `plugins` | array of strings, optional | Plugins to enable, as `plugin@marketplace` ids. Everything else installed is set to `false` for the session. |
 | `pluginDirs` | array of strings, optional | Local paths passed to `claude --plugin-dir`, for plugins developed alongside the profile rather than published to a marketplace. |
 | `mcpServers` | object, optional | MCP server definitions passed via `--mcp-config`. Because launches use `--strict-mcp-config`, **any MCP server bundled inside an enabled plugin is otherwise dropped**; redeclare it here if you need it. Empty (`{}`) means no MCP servers for the session. |
