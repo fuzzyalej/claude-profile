@@ -33,6 +33,22 @@ impl Paths {
     pub fn locks_dir(&self) -> PathBuf {
         self.user_profiles_dir().join("locks")
     }
+
+    pub fn index_cache_dir(&self) -> PathBuf {
+        self.user_profiles_dir().join(".index-cache")
+    }
+
+    pub fn index_file(&self) -> PathBuf {
+        self.index_cache_dir().join("index.json")
+    }
+
+    pub fn index_repos_dir(&self) -> PathBuf {
+        self.index_cache_dir().join("repos")
+    }
+
+    pub fn marketplaces_seed_file(&self) -> PathBuf {
+        self.user_profiles_dir().join("marketplaces.txt")
+    }
 }
 
 #[cfg(test)]
@@ -47,5 +63,14 @@ mod tests {
         assert_eq!(p.claude_skills_dir(), PathBuf::from("/h/.claude/skills"));
         assert_eq!(p.claude_settings_path(), PathBuf::from("/h/.claude/settings.json"));
         assert_eq!(p.locks_dir(), PathBuf::from("/h/.claude-profiles/locks"));
+    }
+
+    #[test]
+    fn derives_index_paths_from_home() {
+        let p = Paths::from_home(PathBuf::from("/h"));
+        assert_eq!(p.index_cache_dir(), PathBuf::from("/h/.claude-profiles/.index-cache"));
+        assert_eq!(p.index_file(), PathBuf::from("/h/.claude-profiles/.index-cache/index.json"));
+        assert_eq!(p.index_repos_dir(), PathBuf::from("/h/.claude-profiles/.index-cache/repos"));
+        assert_eq!(p.marketplaces_seed_file(), PathBuf::from("/h/.claude-profiles/marketplaces.txt"));
     }
 }

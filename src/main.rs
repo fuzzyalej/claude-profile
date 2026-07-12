@@ -9,6 +9,7 @@ mod enablement;
 mod extends;
 mod fs_paths;
 mod git;
+mod index;
 mod launch;
 mod lock;
 mod pack;
@@ -81,6 +82,21 @@ enum Command {
         #[arg(last = true)]
         extra: Vec<String>,
     },
+    /// Search a local index of plugins across marketplaces. Returns profile-ready
+    /// `plugin@marketplace` ids. First run auto-syncs; use --sync to rebuild.
+    Find {
+        query: Vec<String>,
+        #[arg(long)]
+        sync: bool,
+        #[arg(long)]
+        refresh_seeds: bool,
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long)]
+        marketplace: Option<String>,
+    },
     /// Remove the claude-profile binary (and optionally profile data).
     SelfUninstall {
         /// Also remove ~/.claude-profiles (all personal profiles, packs, locks).
@@ -148,6 +164,9 @@ fn run() -> anyhow::Result<i32> {
             Ok(0)
         }
         Some(Command::Test { target, json, extra }) => commands::test::run(&target, json, &extra),
+        Some(Command::Find { query, sync, refresh_seeds, json, limit, marketplace }) => {
+            commands::find::run(&paths, &query, sync, refresh_seeds, json, limit, marketplace.as_deref())
+        }
         Some(Command::SelfUninstall { purge }) => {
             let (profiles, _failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &examples);
             let refmap = refmap::build_refmap(&profiles);

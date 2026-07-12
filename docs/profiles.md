@@ -8,6 +8,8 @@ the machine is explicitly disabled for that launch.
 > `~/.claude-profiles/` with every field present and ready to fill in — see
 > [`new`](commands.md#new).
 
+To find candidate plugins to add, use [`find`](commands.md#find).
+
 ## Where profiles live
 
 `claude-profile <name>` resolves `<name>.json` by searching, in order (first match wins):

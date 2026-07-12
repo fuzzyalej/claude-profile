@@ -153,6 +153,9 @@ mod tests {
             self.checkouts.borrow_mut().push((r.to_path_buf(), g.into()));
             Ok(())
         }
+        fn sparse_fetch(&self, _u: &str, _d: &std::path::Path, _s: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
 
     #[test]

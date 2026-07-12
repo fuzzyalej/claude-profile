@@ -191,6 +191,7 @@ mod tests {
         fn checkout(&self, r: &Path, gr: &str) -> anyhow::Result<()> {
             self.checkouts.borrow_mut().push((r.to_path_buf(), gr.to_string())); Ok(())
         }
+        fn sparse_fetch(&self, _u: &str, _d: &Path, _s: &str) -> anyhow::Result<()> { Ok(()) }
     }
 
     #[test]

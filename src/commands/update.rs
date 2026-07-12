@@ -40,6 +40,7 @@ mod tests {
         fn head_sha(&self, _r: &Path) -> anyhow::Result<String> { Ok(self.head.clone()) }
         fn is_repo(&self, _r: &Path) -> bool { true }
         fn checkout(&self, _r: &Path, gr: &str) -> anyhow::Result<()> { self.checkouts.borrow_mut().push(gr.into()); Ok(()) }
+        fn sparse_fetch(&self, _u: &str, _d: &Path, _s: &str) -> anyhow::Result<()> { Ok(()) }
     }
     fn prof(json: &str) -> crate::profile::Profile { crate::profile::Profile::from_json_str(json).unwrap() }
 
