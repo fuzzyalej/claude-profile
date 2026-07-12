@@ -1,0 +1,34 @@
+{
+  "name": "design",
+  "description": "UX/UI, CSS & design systems: frontend design, UI design workflows, component & design-system work, accessibility audits, Figma, CSS, design-system extraction, live docs",
+  "marketplaces": {
+    "2389-research": "2389-research/claude-plugins",
+    "claude-code-workflows": "wshobson/agents",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "diagon-alley": "fuzzyalej/diagon-alley",
+    "knowledge-work-plugins": "anthropics/knowledge-work-plugins",
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "context7@claude-plugins-official",
+    "frontend-design@claude-plugins-official",
+    "ui-design@claude-code-workflows",
+    "accessibility-compliance@claude-code-workflows",
+    "design@knowledge-work-plugins",
+    "figma@claude-plugins-official",
+    "css-development@2389-research",
+    "design-extractor@diagon-alley",
+    "commit-commands@claude-plugins-official"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}

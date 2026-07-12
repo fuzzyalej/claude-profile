@@ -20,19 +20,21 @@ To find candidate plugins to add, use [`find`](commands.md#find).
 4. `~/.claude-profiles/<name>.json` (personal profiles).
 5. `~/.claude-profiles/packs/<owner--repo>/profiles/<name>.json`, one candidate per installed
    pack (see [`install`](commands.md#install)).
-6. The engine's own `examples/<name>.json`: reference profiles shipped with `claude-profile`
-   itself (e.g. `rust-developer`).
+6. The engine's own bundled `profiles/<name>.json`: reference profiles shipped with
+   `claude-profile` itself (e.g. `rust-developer`, `python-developer`, `react-developer`).
+   This directory is resolved relative to the engine, not your current directory, so it is
+   distinct from the project-local `./profiles/` in step 2.
 
 `claude-profile list` shows every profile it can find across all of these locations and where
 each one came from.
 
 ## A worked example
 
-`examples/rust-developer.json`, shipped with the engine:
+A minimal profile is just a name and one plugin:
 
 ```json
 {
-  "name": "rust-developer",
+  "name": "rust-minimal",
   "description": "TDD-driven Rust development",
   "marketplaces": {
     "superpowers-marketplace": "obra/superpowers-marketplace"
@@ -45,10 +47,17 @@ each one came from.
 }
 ```
 
-Launching it (`claude-profile rust-developer`) provisions the `superpowers-marketplace`
+Launching it (`claude-profile rust-minimal`) provisions the `superpowers-marketplace`
 marketplace and the `superpowers` plugin if they aren't already installed, then launches
 `claude` with only that plugin enabled. Every other plugin on the machine is turned off for
 the session.
+
+The engine ships richer reference profiles under `profiles/` — for example `rust-developer`,
+`python-developer`, and `react-developer` each layer a language server, live docs
+(`context7`), backend/database workflows, performance, testing, review, and commit plugins on
+top of that same `superpowers` core. Run `claude-profile list` to see them, or
+`claude-profile show <name>` to inspect one before launching. These were composed with
+[`find`](commands.md#find) against the cross-marketplace plugin index.
 
 ## Fields
 

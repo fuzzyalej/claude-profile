@@ -13,7 +13,7 @@ pub fn remove_target(
     paths: &Paths,
     cwd: &Path,
     env_dir: Option<&Path>,
-    examples_dir: &Path,
+    bundled_dir: &Path,
 ) -> anyhow::Result<RemovePlan> {
     if name_or_repo.contains('/') {
         let repo_ref = crate::git::parse_repo_ref(name_or_repo)?;
@@ -23,9 +23,9 @@ pub fn remove_target(
         }
         return Ok(RemovePlan::Pack { dir });
     }
-    let resolved = resolve(name_or_repo, paths, cwd, env_dir, examples_dir)?;
-    if matches!(resolved.source, ProfileSource::ExampleDir) {
-        anyhow::bail!("cannot remove engine example profile '{name_or_repo}'");
+    let resolved = resolve(name_or_repo, paths, cwd, env_dir, bundled_dir)?;
+    if matches!(resolved.source, ProfileSource::BundledDir) {
+        anyhow::bail!("cannot remove engine bundled profile '{name_or_repo}'");
     }
     if matches!(resolved.source, ProfileSource::Pack(_)) {
         anyhow::bail!(
@@ -64,7 +64,7 @@ mod tests {
         fs::create_dir_all(&updir).unwrap();
         fs::write(updir.join("foo.json"), r#"{"name":"foo"}"#).unwrap();
         let paths = crate::fs_paths::Paths::from_home(home);
-        let plan = remove_target("foo", &paths, tmp.path(), None, &tmp.path().join("examples")).unwrap();
+        let plan = remove_target("foo", &paths, tmp.path(), None, &tmp.path().join("bundled")).unwrap();
         match plan {
             RemovePlan::Profile { json, lock } => {
                 assert!(json.ends_with(".claude-profiles/foo.json"));
@@ -75,13 +75,13 @@ mod tests {
     }
 
     #[test]
-    fn refuses_example_profile() {
+    fn refuses_bundled_profile() {
         let tmp = tempfile::tempdir().unwrap();
-        let examples = tmp.path().join("examples");
-        fs::create_dir_all(&examples).unwrap();
-        fs::write(examples.join("demo.json"), r#"{"name":"demo"}"#).unwrap();
+        let bundled = tmp.path().join("bundled");
+        fs::create_dir_all(&bundled).unwrap();
+        fs::write(bundled.join("demo.json"), r#"{"name":"demo"}"#).unwrap();
         let paths = crate::fs_paths::Paths::from_home(tmp.path().join("home"));
-        let err = remove_target("demo", &paths, tmp.path(), None, &examples);
+        let err = remove_target("demo", &paths, tmp.path(), None, &bundled);
         assert!(err.is_err());
     }
 
@@ -93,7 +93,7 @@ mod tests {
         fs::create_dir_all(&profiles_dir).unwrap();
         fs::write(profiles_dir.join("foo.json"), r#"{"name":"foo"}"#).unwrap();
         let paths = crate::fs_paths::Paths::from_home(home);
-        let err = remove_target("foo", &paths, tmp.path(), None, &tmp.path().join("examples"));
+        let err = remove_target("foo", &paths, tmp.path(), None, &tmp.path().join("bundled"));
         assert!(err.is_err());
     }
 
@@ -104,7 +104,7 @@ mod tests {
         let packdir = home.join(".claude-profiles/packs/o--r");
         fs::create_dir_all(&packdir).unwrap();
         let paths = crate::fs_paths::Paths::from_home(home);
-        let plan = remove_target("o/r", &paths, tmp.path(), None, &tmp.path().join("examples")).unwrap();
+        let plan = remove_target("o/r", &paths, tmp.path(), None, &tmp.path().join("bundled")).unwrap();
         match plan {
             RemovePlan::Pack { dir } => assert!(dir.ends_with("packs/o--r")),
             _ => panic!("expected Pack plan"),

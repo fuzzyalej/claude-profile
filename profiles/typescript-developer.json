@@ -1,0 +1,33 @@
+{
+  "name": "typescript-developer",
+  "description": "TDD-driven TypeScript/Node: JS/TS dev + typescript-lsp, backend & API architecture, live docs, performance, testing, review + commit",
+  "marketplaces": {
+    "claude-code-workflows": "wshobson/agents",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "context7@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official",
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
+    "javascript-typescript@claude-code-workflows",
+    "typescript-lsp@claude-plugins-official",
+    "backend-development@claude-code-workflows",
+    "api-scaffolding@claude-code-workflows"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}

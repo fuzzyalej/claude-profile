@@ -146,7 +146,7 @@ Usage: claude-profile list
 ```
 
 Lists every profile `claude-profile` can find across the full search path (env dir, project
-dirs, personal profiles, installed packs, and the engine's own examples), deduplicated by name
+dirs, personal profiles, installed packs, and the engine's own bundled profiles), deduplicated by name
 with the highest-priority location winning, along with where each one resolved from.
 
 ## `status`
@@ -223,7 +223,7 @@ Deletes profile **data**, not installed plugin code.
   `.lock` file, if any.
 - `<TARGET>` as `owner/repo`: deletes the entire cloned pack directory
   (`~/.claude-profiles/packs/owner--repo/`).
-- **Safety behavior:** refuses to remove one of the engine's own `examples/` profiles (e.g.
+- **Safety behavior:** refuses to remove one of the engine's own bundled `profiles/` (e.g.
   `rust-developer`): those ship with the binary and aren't user data.
 - Does **not** uninstall any plugins by default. Other profiles may still reference them.
   Pass `--prune` to additionally run `gc` immediately afterward, cleaning up anything left
