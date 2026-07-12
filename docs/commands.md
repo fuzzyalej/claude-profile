@@ -17,6 +17,7 @@ Commands:
   remove          Delete a personal profile or cloned pack
   new             Scaffold a new profile in ~/.claude-profiles/
   test            Run `claude plugin eval` against a plugin/skill target
+  find            Search a local index of plugins across marketplaces
   self-uninstall  Remove the claude-profile binary (and optionally profile data)
   help            Print this message or the help of the given subcommand(s)
 ```
@@ -263,6 +264,43 @@ evaluator so you can test a plugin/skill without hand-writing the `claude` invoc
 - `--json`: forwarded to `claude plugin eval --json` for machine-readable output.
 - Anything after a literal `--` is forwarded to `claude plugin eval` unchanged (e.g. `claude-profile
   test my-skill -- --case "smoke*"`).
+
+## `find`
+
+```
+Usage: claude-profile find [OPTIONS] [QUERY]...
+
+Options:
+      --sync                    Rebuild the index from seeds (fetches marketplace manifests)
+      --refresh-seeds           Harvest new marketplace seeds before syncing (not yet implemented)
+      --json                    Machine-readable output
+      --limit <N>           Maximum number of results [default: 20]
+      --marketplace <NAME>  Filter results to a single marketplace
+```
+
+Searches a local, offline index of plugins across many marketplaces and prints results as
+profile-ready `plugin@marketplace` ids, each with its marketplace's source repo
+(`owner/repo`) — copy-paste-ready for a profile's `plugins` and `marketplaces` fields.
+
+- **Behavior:** `<QUERY>` words are joined and matched against each indexed plugin's name,
+  description, and category (metadata only — it does not search skill file bodies). If no
+  index exists yet, the first run syncs automatically before searching; every later run
+  searches the cached index offline unless `--sync` is given. Running `find` with `--sync` or
+  `--refresh-seeds` and no query just rebuilds the index without searching.
+- `--sync`: rebuilds the index now, fetching each seed marketplace's manifest over the
+  network.
+- `--refresh-seeds`: intended to harvest new marketplace seeds before syncing; not yet
+  implemented — prints a notice and falls back to the existing seed list.
+- `--json`: prints the matching entries as a JSON array instead of the human-readable listing.
+- `--limit <N>`: caps the number of results (default `20`).
+- `--marketplace <NAME>`: restricts results to entries from one marketplace.
+- **Seeds:** the index is built from a seed list of marketplace repos — the ~59 marketplaces
+  bundled with `claude-profile`, plus every marketplace you currently have installed, plus
+  any repos you add to `~/.claude-profiles/marketplaces.txt` (one `owner/repo` per line, `#`
+  starts a comment).
+- **Reads/writes:** the index is cached at `~/.claude-profiles/.index-cache/index.json`. On a
+  no-match search, the message includes the index's `generated_at` timestamp so you know how
+  stale it might be; re-run with `--sync` to refresh it.
 
 ## `self-uninstall`
 

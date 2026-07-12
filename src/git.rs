@@ -75,6 +75,9 @@ pub trait GitCli {
     /// `anthropics/claude-plugins-official`) are installed without a `.git`, so
     /// SHA pinning must be skipped rather than failing on `rev-parse`.
     fn is_repo(&self, repo: &Path) -> bool;
+    /// Shallow, blobless, sparse clone of only `subpath` from `url` into `dest`.
+    /// Used to fetch a single `.claude-plugin/marketplace.json` cheaply.
+    fn sparse_fetch(&self, url: &str, dest: &Path, subpath: &str) -> anyhow::Result<()>;
 }
 
 pub struct RealGit;
@@ -111,6 +114,15 @@ impl GitCli for RealGit {
     fn is_repo(&self, repo: &Path) -> bool {
         // A `.git` entry is a dir for normal clones and a file for worktrees/submodules.
         repo.join(".git").exists()
+    }
+    fn sparse_fetch(&self, url: &str, dest: &Path, subpath: &str) -> anyhow::Result<()> {
+        let dest_s = dest.to_string_lossy();
+        self.run(
+            &["clone", "--depth", "1", "--filter=blob:none", "--sparse", url, &dest_s],
+            None,
+        )?;
+        self.run(&["-C", &dest_s, "sparse-checkout", "set", subpath], None)?;
+        Ok(())
     }
 }
 
@@ -175,5 +187,13 @@ mod tests {
         let r = parse_repo_ref("o/r").unwrap();
         assert_eq!(r.url, None);
         assert_eq!(r.clone_url(), "https://github.com/o/r.git");
+    }
+
+    #[test]
+    fn sparse_fetch_is_on_the_trait() {
+        // Compile-time proof the method exists with the expected signature.
+        fn _assert<G: GitCli>(g: &G, p: &std::path::Path) {
+            let _ = g.sparse_fetch("https://x/y.git", p, ".claude-plugin");
+        }
     }
 }

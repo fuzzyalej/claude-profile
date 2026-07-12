@@ -51,10 +51,19 @@ claude-profile list                    # profiles and where they come from
 claude-profile status                  # what's installed globally and which profiles use it
 claude-profile gc --dry-run            # preview cleanup of installs no profile references
 claude-profile disable rust-developer  # stop its unshared plugins loading in plain claude
+claude-profile find python             # discover plugins to add to a profile
 ```
 
 > **Tip:** `claude-profile` is a mouthful to type all day. Add `alias cpf=claude-profile` to
 > your shell. (We intentionally ship only the one binary name.)
+
+## Discovering plugins
+
+Not sure what to put in a profile? `claude-profile find python` searches a local,
+cross-marketplace index and prints copy-paste-ready `plugin@marketplace` ids plus each one's
+source repo. Add your own marketplaces to the search by listing them (one `owner/repo` per
+line) in `~/.claude-profiles/marketplaces.txt`. See [`find`](docs/commands.md#find) for the
+full flag reference.
 
 ## What a profile controls
 
