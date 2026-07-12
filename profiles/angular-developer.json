@@ -1,0 +1,36 @@
+{
+  "name": "angular-developer",
+  "description": "TDD-driven Angular: JS/TS + typescript-lsp, frontend engineering, UI design, accessibility, live Angular/RxJS docs, performance, testing, review + commit",
+  "marketplaces": {
+    "cc-marketplace": "ananddtyagi/claude-code-marketplace",
+    "claude-code-workflows": "wshobson/agents",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "context7@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official",
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
+    "javascript-typescript@claude-code-workflows",
+    "typescript-lsp@claude-plugins-official",
+    "frontend-developer@cc-marketplace",
+    "frontend-design@claude-plugins-official",
+    "ui-design@claude-code-workflows",
+    "accessibility-compliance@claude-code-workflows"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}

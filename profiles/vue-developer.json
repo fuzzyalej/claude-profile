@@ -1,0 +1,35 @@
+{
+  "name": "vue-developer",
+  "description": "TDD-driven Vue: JS/TS + Volar LSP, frontend & UI design, accessibility, live Vue/Nuxt docs, performance, testing, review + commit",
+  "marketplaces": {
+    "claude-code-lsps": "Piebald-AI/claude-code-lsps",
+    "claude-code-workflows": "wshobson/agents",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "context7@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official",
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
+    "javascript-typescript@claude-code-workflows",
+    "vue-volar@claude-code-lsps",
+    "frontend-design@claude-plugins-official",
+    "ui-design@claude-code-workflows",
+    "accessibility-compliance@claude-code-workflows"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}

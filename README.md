@@ -211,7 +211,7 @@ them. Run with `--dry-run` first to see exactly what changes.
   `~/.claude-profiles/packs/owner--repo/`.
 - **`--prune`**: after deleting, runs `gc` so any plugin/marketplace left referenced by no
   remaining profile is uninstalled too. This is the "remove it and clean up after it" option.
-- It refuses to remove the engine's bundled `examples/` profiles (e.g. `rust-developer`) — those
+- It refuses to remove the engine's bundled `profiles/` (e.g. `rust-developer`) — those
   ship with the binary and aren't your data.
 
 The difference at a glance: **`disable`** keeps the profile and its installs, just quiets them

@@ -109,11 +109,11 @@ type ProfilesForRefmap = (Vec<(String, profile::Profile)>, Vec<(PathBuf, String)
 
 fn profiles_for_refmap(
     paths: &fs_paths::Paths, cwd: &std::path::Path,
-    env: Option<&std::path::Path>, examples: &std::path::Path,
+    env: Option<&std::path::Path>, bundled: &std::path::Path,
 ) -> ProfilesForRefmap {
     let mut out = Vec::new();
     let mut failed = Vec::new();
-    for (name, path, _src) in resolve::list_available(paths, cwd, env, examples) {
+    for (name, path, _src) in resolve::list_available(paths, cwd, env, bundled) {
         match std::fs::read_to_string(&path) {
             Ok(body) => match profile::Profile::from_json_str(&body) {
                 Ok(p) => out.push((name, p)),
@@ -125,9 +125,10 @@ fn profiles_for_refmap(
     (out, failed)
 }
 
-fn examples_dir() -> PathBuf {
-    // examples/ ships next to the binary in dev; fall back to CARGO_MANIFEST_DIR at build time.
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples")
+fn bundled_dir() -> PathBuf {
+    // profiles/ holds the reference profiles shipped with the engine; resolved relative to
+    // CARGO_MANIFEST_DIR at build time.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("profiles")
 }
 
 fn env_dir() -> Option<PathBuf> {
@@ -138,16 +139,16 @@ fn run() -> anyhow::Result<i32> {
     let cli = Cli::parse();
     let paths = fs_paths::Paths::detect()?;
     let cwd = std::env::current_dir()?;
-    let examples = examples_dir();
+    let bundled = bundled_dir();
     let env = env_dir();
 
     match cli.command {
         Some(Command::List) => {
-            commands::list::run(&paths, &cwd, env.as_deref(), &examples)?;
+            commands::list::run(&paths, &cwd, env.as_deref(), &bundled)?;
             Ok(0)
         }
         Some(Command::Show { target }) => {
-            commands::show::run(&target, &paths, &cwd, env.as_deref(), &examples)?;
+            commands::show::run(&target, &paths, &cwd, env.as_deref(), &bundled)?;
             Ok(0)
         }
         Some(Command::Install { spec }) => {
@@ -156,7 +157,7 @@ fn run() -> anyhow::Result<i32> {
             Ok(0)
         }
         Some(Command::Update { frozen }) => {
-            handle_update(frozen, &paths, &cwd, env.as_deref(), &examples)?;
+            handle_update(frozen, &paths, &cwd, env.as_deref(), &bundled)?;
             Ok(0)
         }
         Some(Command::New { name }) => {
@@ -168,18 +169,18 @@ fn run() -> anyhow::Result<i32> {
             commands::find::run(&paths, &query, sync, refresh_seeds, json, limit, marketplace.as_deref())
         }
         Some(Command::SelfUninstall { purge }) => {
-            let (profiles, _failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &examples);
+            let (profiles, _failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &bundled);
             let refmap = refmap::build_refmap(&profiles);
             let referenced: Vec<String> = refmap.plugin_refs.keys().cloned().collect();
             commands::self_uninstall::run(&paths, purge, &referenced)?;
             Ok(0)
         }
         Some(Command::Disable { profile, dry_run }) => {
-            handle_disable(&profile, dry_run, &paths, &cwd, env.as_deref(), &examples)?;
+            handle_disable(&profile, dry_run, &paths, &cwd, env.as_deref(), &bundled)?;
             Ok(0)
         }
         Some(Command::Status) => {
-            let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &examples);
+            let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &bundled);
             for (path, err) in &failed {
                 eprintln!("warning: could not parse profile {}: {err}", path.display());
             }
@@ -187,7 +188,7 @@ fn run() -> anyhow::Result<i32> {
             Ok(0)
         }
         Some(Command::Gc { dry_run }) => {
-            let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &examples);
+            let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &bundled);
             if !failed.is_empty() {
                 for (path, err) in &failed {
                     eprintln!("error: could not parse profile {}: {err}", path.display());
@@ -207,11 +208,11 @@ fn run() -> anyhow::Result<i32> {
             Ok(0)
         }
         Some(Command::Remove { target, prune }) => {
-            let plan = commands::remove::remove_target(&target, &paths, &cwd, env.as_deref(), &examples)?;
+            let plan = commands::remove::remove_target(&target, &paths, &cwd, env.as_deref(), &bundled)?;
             commands::remove::apply(&plan)?;
             println!("removed {target}");
             if prune {
-                let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &examples);
+                let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &bundled);
                 if !failed.is_empty() {
                     for (path, err) in &failed {
                         eprintln!("error: could not parse profile {}: {err}", path.display());
@@ -227,7 +228,7 @@ fn run() -> anyhow::Result<i32> {
             }
             Ok(0)
         }
-        None => handle_launch(&cli.profiles, cli.yes, &cli.extra, &paths, &cwd, env.as_deref(), &examples),
+        None => handle_launch(&cli.profiles, cli.yes, &cli.extra, &paths, &cwd, env.as_deref(), &bundled),
     }
 }
 
@@ -237,9 +238,9 @@ fn handle_disable(
     paths: &fs_paths::Paths,
     cwd: &std::path::Path,
     env: Option<&std::path::Path>,
-    examples: &std::path::Path,
+    bundled: &std::path::Path,
 ) -> anyhow::Result<()> {
-    let (profiles, failed) = profiles_for_refmap(paths, cwd, env, examples);
+    let (profiles, failed) = profiles_for_refmap(paths, cwd, env, bundled);
     for (path, err) in &failed {
         eprintln!("warning: could not parse profile {}: {err}", path.display());
     }
@@ -247,7 +248,7 @@ fn handle_disable(
     let expanded: Vec<(String, profile::Profile)> = profiles
         .iter()
         .filter_map(|(name, p)| {
-            resolve_extends_or_warn(name, p, paths, cwd, env, examples).map(|rp| (name.clone(), rp))
+            resolve_extends_or_warn(name, p, paths, cwd, env, bundled).map(|rp| (name.clone(), rp))
         })
         .collect();
     commands::disable::run(paths, &expanded, profile, dry_run)
@@ -258,11 +259,11 @@ fn handle_update(
     paths: &fs_paths::Paths,
     cwd: &std::path::Path,
     env: Option<&std::path::Path>,
-    examples: &std::path::Path,
+    bundled: &std::path::Path,
 ) -> anyhow::Result<()> {
     let updated = pack::update_all_packs(&git::RealGit, paths)?;
     for name in &updated { println!("updated pack {name}"); }
-    let (profiles, failed) = profiles_for_refmap(paths, cwd, env, examples);
+    let (profiles, failed) = profiles_for_refmap(paths, cwd, env, bundled);
     for (path, err) in &failed {
         eprintln!("warning: skipping unparseable profile {}: {err}", path.display());
     }
@@ -272,8 +273,8 @@ fn handle_update(
     if frozen {
         let mut triples = Vec::new();
         for (name, profile) in &profiles {
-            let Some(profile) = resolve_extends_or_warn(name, profile, paths, cwd, env, examples) else { continue };
-            let resolved = resolve::resolve(name, paths, cwd, env, examples)?;
+            let Some(profile) = resolve_extends_or_warn(name, profile, paths, cwd, env, bundled) else { continue };
+            let resolved = resolve::resolve(name, paths, cwd, env, bundled)?;
             let lp = lock::lock_path(name, &resolved.path, &resolved.source, paths);
             let lf = lock::Lockfile::load(&lp)?.unwrap_or_else(|| lock::Lockfile::new(name));
             triples.push((name.clone(), profile, lf));
@@ -282,7 +283,7 @@ fn handle_update(
         println!("--frozen: all locks up to date");
     } else {
         for (name, profile) in &profiles {
-            let Some(profile) = resolve_extends_or_warn(name, profile, paths, cwd, env, examples) else { continue };
+            let Some(profile) = resolve_extends_or_warn(name, profile, paths, cwd, env, bundled) else { continue };
             let missing = profile.marketplaces.keys().find(|mkt| !mkt_dirs.contains_key(mkt.as_str()));
             if let Some(mkt) = missing {
                 eprintln!(
@@ -290,7 +291,7 @@ fn handle_update(
                 );
                 continue;
             }
-            let resolved = resolve::resolve(name, paths, cwd, env, examples)?;
+            let resolved = resolve::resolve(name, paths, cwd, env, bundled)?;
             let lp = lock::lock_path(name, &resolved.path, &resolved.source, paths);
             let mut lf = lock::Lockfile::load(&lp)?.unwrap_or_else(|| lock::Lockfile::new(name));
             commands::update::reresolve_profile(&git::RealGit, &profile, &dir_lookup, &mut lf)?;
@@ -308,10 +309,10 @@ fn resolve_extends_or_warn(
     paths: &fs_paths::Paths,
     cwd: &std::path::Path,
     env: Option<&std::path::Path>,
-    examples: &std::path::Path,
+    bundled: &std::path::Path,
 ) -> Option<profile::Profile> {
     match extends::resolve_extends(profile.clone(), &|parent| {
-        Ok(resolve::resolve(parent, paths, cwd, env, examples)?.profile)
+        Ok(resolve::resolve(parent, paths, cwd, env, bundled)?.profile)
     }) {
         Ok(p) => Some(p),
         Err(e) => {
@@ -330,7 +331,7 @@ fn handle_launch(
     paths: &fs_paths::Paths,
     cwd: &std::path::Path,
     env: Option<&std::path::Path>,
-    examples: &std::path::Path,
+    bundled: &std::path::Path,
 ) -> anyhow::Result<i32> {
     match names {
         [] => {
@@ -340,11 +341,11 @@ fn handle_launch(
             Ok(0)
         }
         [name] => {
-            let one = resolve_one(name, paths, cwd, env, examples)?;
+            let one = resolve_one(name, paths, cwd, env, bundled)?;
             let lock_file = lock::lock_path(&one.key, &one.path, &one.source, paths);
             provision_pin_launch(&one.profile, &one.key, &lock_file, assume_yes, extra, paths)
         }
-        _ => launch_combined(names, assume_yes, extra, paths, cwd, env, examples),
+        _ => launch_combined(names, assume_yes, extra, paths, cwd, env, bundled),
     }
 }
 
@@ -363,7 +364,7 @@ fn resolve_one(
     paths: &fs_paths::Paths,
     cwd: &std::path::Path,
     env: Option<&std::path::Path>,
-    examples: &std::path::Path,
+    bundled: &std::path::Path,
 ) -> anyhow::Result<ResolvedTarget> {
     let key = if name.contains('/') {
         let dir = pack::install_pack(&git::RealGit, name, paths)?;
@@ -371,10 +372,10 @@ fn resolve_one(
     } else {
         name.to_string()
     };
-    let resolved = resolve::resolve(&key, paths, cwd, env, examples)?;
+    let resolved = resolve::resolve(&key, paths, cwd, env, bundled)?;
     let (path, source) = (resolved.path.clone(), resolved.source.clone());
     let profile = extends::resolve_extends(resolved.profile, &|parent| {
-        Ok(resolve::resolve(parent, paths, cwd, env, examples)?.profile)
+        Ok(resolve::resolve(parent, paths, cwd, env, bundled)?.profile)
     })?;
     Ok(ResolvedTarget { key, profile, path, source })
 }
@@ -388,11 +389,11 @@ fn launch_combined(
     paths: &fs_paths::Paths,
     cwd: &std::path::Path,
     env: Option<&std::path::Path>,
-    examples: &std::path::Path,
+    bundled: &std::path::Path,
 ) -> anyhow::Result<i32> {
     let mut resolved = Vec::new();
     for name in names {
-        let t = resolve_one(name, paths, cwd, env, examples)?;
+        let t = resolve_one(name, paths, cwd, env, bundled)?;
         resolved.push((t.key, t.profile));
     }
     let combined = combine::combine_profiles(&resolved)?;

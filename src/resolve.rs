@@ -8,7 +8,7 @@ pub enum ProfileSource {
     ProjectDir,
     UserDir,
     Pack(String),
-    ExampleDir,
+    BundledDir,
 }
 
 pub struct ResolvedProfile {
@@ -29,7 +29,7 @@ fn load(path: &Path, source: ProfileSource) -> anyhow::Result<ResolvedProfile> {
 }
 
 /// Ordered candidate (file-path, source) pairs for a profile name.
-fn candidates(name: &str, paths: &Paths, cwd: &Path, env_dir: Option<&Path>, examples_dir: &Path)
+fn candidates(name: &str, paths: &Paths, cwd: &Path, env_dir: Option<&Path>, bundled_dir: &Path)
     -> Vec<(PathBuf, ProfileSource)> {
     let file = format!("{name}.json");
     let mut out = Vec::new();
@@ -47,14 +47,14 @@ fn candidates(name: &str, paths: &Paths, cwd: &Path, env_dir: Option<&Path>, exa
             out.push((entry.path().join("profiles").join(&file), ProfileSource::Pack(pack)));
         }
     }
-    out.push((examples_dir.join(&file), ProfileSource::ExampleDir));
+    out.push((bundled_dir.join(&file), ProfileSource::BundledDir));
     out
 }
 
 /// Loads a profile by name. The caller (launch_profile) applies `extends::resolve_extends` afterward.
-pub fn resolve(name: &str, paths: &Paths, cwd: &Path, env_dir: Option<&Path>, examples_dir: &Path)
+pub fn resolve(name: &str, paths: &Paths, cwd: &Path, env_dir: Option<&Path>, bundled_dir: &Path)
     -> anyhow::Result<ResolvedProfile> {
-    for (path, source) in candidates(name, paths, cwd, env_dir, examples_dir) {
+    for (path, source) in candidates(name, paths, cwd, env_dir, bundled_dir) {
         if path.is_file() {
             return load(&path, source);
         }
@@ -62,7 +62,7 @@ pub fn resolve(name: &str, paths: &Paths, cwd: &Path, env_dir: Option<&Path>, ex
     anyhow::bail!("profile '{name}' not found in any search path")
 }
 
-pub fn list_available(paths: &Paths, cwd: &Path, env_dir: Option<&Path>, examples_dir: &Path)
+pub fn list_available(paths: &Paths, cwd: &Path, env_dir: Option<&Path>, bundled_dir: &Path)
     -> Vec<(String, PathBuf, ProfileSource)> {
     let mut seen = std::collections::BTreeSet::new();
     let mut out = Vec::new();
@@ -78,7 +78,7 @@ pub fn list_available(paths: &Paths, cwd: &Path, env_dir: Option<&Path>, example
             dirs.push((entry.path().join("profiles"), ProfileSource::Pack(pack)));
         }
     }
-    dirs.push((examples_dir.to_path_buf(), ProfileSource::ExampleDir));
+    dirs.push((bundled_dir.to_path_buf(), ProfileSource::BundledDir));
 
     for (dir, source) in dirs {
         if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -107,37 +107,37 @@ mod tests {
     }
 
     #[test]
-    fn user_dir_wins_over_examples_and_reports_source() {
+    fn user_dir_wins_over_bundled_and_reports_source() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
-        let examples = tmp.path().join("examples");
+        let bundled = tmp.path().join("bundled");
         let cwd = tmp.path().join("cwd");
         write(&home.join(".claude-profiles"), "foo.json", r#"{"name":"foo","plugins":["u@m"]}"#);
-        write(&examples, "foo.json", r#"{"name":"foo","plugins":["e@m"]}"#);
+        write(&bundled, "foo.json", r#"{"name":"foo","plugins":["e@m"]}"#);
 
         let paths = crate::fs_paths::Paths::from_home(home.clone());
-        let r = resolve("foo", &paths, &cwd, None, &examples).unwrap();
+        let r = resolve("foo", &paths, &cwd, None, &bundled).unwrap();
         assert_eq!(r.profile.plugins, vec!["u@m"]);
         assert!(matches!(r.source, ProfileSource::UserDir));
     }
 
     #[test]
-    fn falls_back_to_examples() {
+    fn falls_back_to_bundled() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
-        let examples = tmp.path().join("examples");
+        let bundled = tmp.path().join("bundled");
         let cwd = tmp.path().join("cwd");
-        write(&examples, "bar.json", r#"{"name":"bar","plugins":["e@m"]}"#);
+        write(&bundled, "bar.json", r#"{"name":"bar","plugins":["e@m"]}"#);
         let paths = crate::fs_paths::Paths::from_home(home);
-        let r = resolve("bar", &paths, &cwd, None, &examples).unwrap();
-        assert!(matches!(r.source, ProfileSource::ExampleDir));
+        let r = resolve("bar", &paths, &cwd, None, &bundled).unwrap();
+        assert!(matches!(r.source, ProfileSource::BundledDir));
     }
 
     #[test]
     fn missing_profile_errors() {
         let tmp = tempfile::tempdir().unwrap();
         let paths = crate::fs_paths::Paths::from_home(tmp.path().join("home"));
-        let err = resolve("nope", &paths, tmp.path(), None, &tmp.path().join("examples"));
+        let err = resolve("nope", &paths, tmp.path(), None, &tmp.path().join("bundled"));
         assert!(err.is_err());
     }
 
@@ -145,14 +145,14 @@ mod tests {
     fn env_dir_wins_over_user_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
-        let examples = tmp.path().join("examples");
+        let bundled = tmp.path().join("bundled");
         let cwd = tmp.path().join("cwd");
         let env_dir = tmp.path().join("envdir");
         write(&env_dir, "foo.json", r#"{"name":"foo","plugins":["env@m"]}"#);
         write(&home.join(".claude-profiles"), "foo.json", r#"{"name":"foo","plugins":["u@m"]}"#);
 
         let paths = crate::fs_paths::Paths::from_home(home.clone());
-        let r = resolve("foo", &paths, &cwd, Some(&env_dir), &examples).unwrap();
+        let r = resolve("foo", &paths, &cwd, Some(&env_dir), &bundled).unwrap();
         assert_eq!(r.profile.plugins, vec!["env@m"]);
         assert!(matches!(r.source, ProfileSource::EnvDir));
     }
@@ -161,7 +161,7 @@ mod tests {
     fn resolves_from_pack() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
-        let examples = tmp.path().join("examples");
+        let bundled = tmp.path().join("bundled");
         let cwd = tmp.path().join("cwd");
         write(
             &home.join(".claude-profiles").join("packs").join("owner--repo").join("profiles"),
@@ -170,7 +170,7 @@ mod tests {
         );
 
         let paths = crate::fs_paths::Paths::from_home(home.clone());
-        let r = resolve("foo", &paths, &cwd, None, &examples).unwrap();
+        let r = resolve("foo", &paths, &cwd, None, &bundled).unwrap();
         assert_eq!(r.profile.plugins, vec!["pack@m"]);
         assert!(matches!(r.source, ProfileSource::Pack(ref p) if p == "owner--repo"));
     }
@@ -179,14 +179,14 @@ mod tests {
     fn list_available_dedups_keeping_highest_priority() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
-        let examples = tmp.path().join("examples");
+        let bundled = tmp.path().join("bundled");
         let cwd = tmp.path().join("cwd");
         write(&home.join(".claude-profiles"), "foo.json", r#"{"name":"foo","plugins":["u@m"]}"#);
-        write(&examples, "foo.json", r#"{"name":"foo","plugins":["e@m"]}"#);
-        write(&examples, "bar.json", r#"{"name":"bar","plugins":["e@m"]}"#);
+        write(&bundled, "foo.json", r#"{"name":"foo","plugins":["e@m"]}"#);
+        write(&bundled, "bar.json", r#"{"name":"bar","plugins":["e@m"]}"#);
 
         let paths = crate::fs_paths::Paths::from_home(home.clone());
-        let list = list_available(&paths, &cwd, None, &examples);
+        let list = list_available(&paths, &cwd, None, &bundled);
 
         let foo_entries: Vec<_> = list.iter().filter(|(name, _, _)| name == "foo").collect();
         assert_eq!(foo_entries.len(), 1);

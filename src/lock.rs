@@ -47,7 +47,7 @@ impl Lockfile {
 
 pub fn lock_path(profile_name: &str, profile_path: &Path, source: &ProfileSource, paths: &Paths) -> PathBuf {
     match source {
-        ProfileSource::Pack(_) | ProfileSource::ExampleDir => {
+        ProfileSource::Pack(_) | ProfileSource::BundledDir => {
             paths.locks_dir().join(format!("{profile_name}.lock"))
         }
         _ => profile_path.with_extension("lock"),

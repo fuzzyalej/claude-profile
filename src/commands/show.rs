@@ -91,7 +91,7 @@ fn source_label(source: &resolve::ProfileSource) -> String {
         resolve::ProfileSource::ProjectDir => "project".into(),
         resolve::ProfileSource::UserDir => "personal (~/.claude-profiles)".into(),
         resolve::ProfileSource::Pack(p) => format!("pack {p}"),
-        resolve::ProfileSource::ExampleDir => "example (bundled)".into(),
+        resolve::ProfileSource::BundledDir => "bundled".into(),
     }
 }
 
@@ -108,7 +108,7 @@ pub fn run(
     paths: &Paths,
     cwd: &Path,
     env: Option<&Path>,
-    examples: &Path,
+    bundled: &Path,
 ) -> anyhow::Result<()> {
     let cli = claude::RealClaude::new();
     let installed_plugins: BTreeSet<String> =
@@ -128,7 +128,7 @@ pub fn run(
             format_show(&profile, author.as_deref(), target, &installed_plugins, &installed_mkts, color)
         );
     } else {
-        let resolved = resolve::resolve(target, paths, cwd, env, examples)?;
+        let resolved = resolve::resolve(target, paths, cwd, env, bundled)?;
         let label = source_label(&resolved.source);
         let author = resolved
             .profile
@@ -137,7 +137,7 @@ pub fn run(
             .or_else(|| pack_owner(&resolved.source));
         // Expand `extends` so the plugin/marketplace lists reflect what actually installs.
         let profile = extends::resolve_extends(resolved.profile, &|parent| {
-            Ok(resolve::resolve(parent, paths, cwd, env, examples)?.profile)
+            Ok(resolve::resolve(parent, paths, cwd, env, bundled)?.profile)
         })?;
         print!(
             "{}",

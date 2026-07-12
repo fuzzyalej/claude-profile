@@ -1,0 +1,30 @@
+{
+  "name": "python-developer",
+  "description": "TDD-driven Python backend: modern 3.12+/async/FastAPI+Django, backend & API architecture, database design, performance profiling, refactoring, Pyright, live docs, review + testing + commit workflows",
+  "marketplaces": {
+    "superpowers-marketplace": "obra/superpowers-marketplace",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "claude-code-workflows": "wshobson/agents"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "python-development@claude-code-workflows",
+    "backend-development@claude-code-workflows",
+    "database-design@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
+    "pyright-lsp@claude-plugins-official",
+    "context7@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  }
+}

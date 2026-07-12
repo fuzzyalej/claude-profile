@@ -1,0 +1,34 @@
+{
+  "name": "go-developer",
+  "description": "TDD-driven Go: go-development workflows + gopls, backend & API architecture, database design, live docs, performance, testing, review + commit",
+  "marketplaces": {
+    "claude-code-workflows": "wshobson/agents",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "netresearch-claude-code-marketplace": "netresearch/claude-code-marketplace",
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "context7@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official",
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
+    "go-development@netresearch-claude-code-marketplace",
+    "gopls-lsp@claude-plugins-official",
+    "backend-development@claude-code-workflows",
+    "database-design@claude-code-workflows"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}

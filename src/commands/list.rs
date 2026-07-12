@@ -8,7 +8,7 @@ fn source_label(s: &ProfileSource) -> String {
         ProfileSource::ProjectDir => "project".to_string(),
         ProfileSource::UserDir => "user".to_string(),
         ProfileSource::Pack(p) => format!("pack:{p}"),
-        ProfileSource::ExampleDir => "example".to_string(),
+        ProfileSource::BundledDir => "bundled".to_string(),
     }
 }
 
@@ -23,8 +23,8 @@ pub fn format_list(items: &[(String, PathBuf, ProfileSource)]) -> String {
     out
 }
 
-pub fn run(paths: &Paths, cwd: &Path, env_dir: Option<&Path>, examples_dir: &Path) -> anyhow::Result<()> {
-    let items = list_available(paths, cwd, env_dir, examples_dir);
+pub fn run(paths: &Paths, cwd: &Path, env_dir: Option<&Path>, bundled_dir: &Path) -> anyhow::Result<()> {
+    let items = list_available(paths, cwd, env_dir, bundled_dir);
     print!("{}", format_list(&items));
     Ok(())
 }
@@ -39,13 +39,13 @@ mod tests {
     fn formats_name_and_source() {
         let items = vec![
             ("rust-developer".to_string(), PathBuf::from("/h/.claude-profiles/rust-developer.json"), ProfileSource::UserDir),
-            ("demo".to_string(), PathBuf::from("/e/demo.json"), ProfileSource::ExampleDir),
+            ("demo".to_string(), PathBuf::from("/e/demo.json"), ProfileSource::BundledDir),
         ];
         let s = format_list(&items);
         assert!(s.contains("rust-developer"));
         assert!(s.contains("user"));
         assert!(s.contains("demo"));
-        assert!(s.contains("example"));
+        assert!(s.contains("bundled"));
     }
 
     #[test]
