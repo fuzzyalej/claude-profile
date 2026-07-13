@@ -18,10 +18,11 @@ pub fn build_args(profile: &Profile, enablement: &Enablement, extra: &[String]) 
     if profile.bare {
         args.push("--bare".to_string());
     }
-    if !extra.is_empty() {
-        args.push("--".to_string());
-        args.extend(extra.iter().cloned());
-    }
+    // Append forwarded args directly (no `--`): claude treats everything after a
+    // `--` as the positional prompt, so a separator would turn flags like
+    // `--model opus` into prompt text. As options they parse correctly, and a
+    // trailing prompt still lands as the positional arg.
+    args.extend(extra.iter().cloned());
     args
 }
 
@@ -78,11 +79,12 @@ mod tests {
     }
 
     #[test]
-    fn adds_bare_and_forwards_extra_after_double_dash() {
+    fn forwards_extra_as_flags_without_double_dash() {
         let p = crate::profile::Profile::from_json_str(r#"{"name":"p","bare":true}"#).unwrap();
         let args = build_args(&p, &enablement(), &["--continue".to_string()]);
         assert!(args.contains(&"--bare".to_string()));
-        let dd = args.iter().position(|a| a == "--").unwrap();
-        assert_eq!(args[dd + 1], "--continue");
+        // No `--` separator: claude would otherwise read the flag as a prompt.
+        assert!(!args.contains(&"--".to_string()));
+        assert_eq!(args.last().unwrap(), "--continue");
     }
 }
