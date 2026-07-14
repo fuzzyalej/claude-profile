@@ -17,6 +17,7 @@ mod profile;
 mod provision;
 mod refmap;
 mod resolve;
+mod spinner;
 
 #[derive(Parser)]
 #[command(name = "claude-profile", version, about)]
