@@ -1,6 +1,7 @@
 use crate::claude::ClaudeCli;
 use crate::profile;
 use crate::refmap::{build_refmap, unreferenced_marketplaces, unreferenced_plugins};
+use crate::spinner::spin;
 
 pub struct GcReport {
     pub removed_plugins: Vec<String>,
@@ -15,10 +16,18 @@ pub fn run<C: ClaudeCli>(cli: &C, profiles: &[(String, profile::Profile)], dry_r
     let removed_marketplaces = unreferenced_marketplaces(&mkts, &refmap);
     if !dry_run {
         for id in &removed_plugins {
-            cli.uninstall_plugin(id)?;
+            spin(
+                &format!("Removing plugin {id}..."),
+                &format!("✔ Removed plugin {id}"),
+                || cli.uninstall_plugin(id),
+            )?;
         }
         for name in &removed_marketplaces {
-            cli.marketplace_remove(name)?;
+            spin(
+                &format!("Removing marketplace {name}..."),
+                &format!("✔ Removed marketplace {name}"),
+                || cli.marketplace_remove(name),
+            )?;
         }
     }
     Ok(GcReport { removed_plugins, removed_marketplaces })
