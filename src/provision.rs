@@ -4,6 +4,7 @@ use std::io::Write;
 use crate::git::{parse_repo_ref, GitCli};
 use crate::lock::{Lockfile, LockedMarketplace};
 use std::path::PathBuf;
+use crate::spinner::spin;
 
 pub struct Plan {
     pub marketplaces: Vec<(String, String)>,
@@ -60,11 +61,19 @@ pub fn provision<C: ClaudeCli>(cli: &C, profile: &Profile, assume_yes: bool) -> 
     if !assume_yes && !confirm(&plan) {
         anyhow::bail!("provisioning declined by user");
     }
-    for (_name, src) in &plan.marketplaces {
-        cli.marketplace_add(src)?;
+    for (name, src) in &plan.marketplaces {
+        spin(
+            &format!("Adding marketplace {name}..."),
+            &format!("✔ Added marketplace {name}"),
+            || cli.marketplace_add(src),
+        )?;
     }
     for id in &plan.plugins {
-        cli.install_plugin(id)?;
+        spin(
+            &format!("Installing plugin {id}..."),
+            &format!("✔ Installed plugin {id}"),
+            || cli.install_plugin(id),
+        )?;
     }
     Ok(())
 }
