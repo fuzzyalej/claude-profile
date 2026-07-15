@@ -328,9 +328,9 @@ fn provision_pin_launch(
     cwd: &std::path::Path,
     paths: &fs_paths::Paths,
 ) -> anyhow::Result<i32> {
-    spinner::spin("provisioning marketplaces...", "provisioned", || {
-        provision::provision(&git::RealGit, profile, key, cwd, paths, assume_yes)
-    })?;
+    // Not wrapped in a spinner: provision() may block on an interactive y/N
+    // confirmation prompt, which a steady-tick spinner would draw over.
+    provision::provision(&git::RealGit, profile, key, cwd, paths, assume_yes)?;
 
     let mut lock = lock::Lockfile::load(lock_file)?.unwrap_or_else(|| lock::Lockfile::new(key));
     let dir_lookup = |n: &str| paths.marketplace_clone_dir(n);
