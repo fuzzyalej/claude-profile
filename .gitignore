@@ -4,6 +4,7 @@
 # Local agent / session state (never share)
 /.superpowers/
 /.remember/
+/docs/superpowers/
 
 # OS / editor cruft
 .DS_Store

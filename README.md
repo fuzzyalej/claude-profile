@@ -147,27 +147,6 @@ imports other instruction files (RTK, lean-ctx directives, tool policies, person
 preferences…), a "minimal rust-developer" profile still carries all of that into context.
 A profile trims *plugins/skills/MCP*, not your standing instructions.
 
-### Why we don't "fix" it
-
-The only switch that suppresses `CLAUDE.md` and memory is Claude Code's `--bare` mode, but
-`--bare` **requires `ANTHROPIC_API_KEY` authentication and drops OAuth / keychain
-login**. For the majority of users (OAuth), turning it on changes how you authenticate.
-
-So the honest behavior is:
-
-- **Default (OAuth or API key):** your global/project `CLAUDE.md` and memory always load.
-  Profiles still fully control plugins, skills, and MCP servers.
-- **Opt-in absolute isolation:** set `"bare": true` on a profile *if* you authenticate with
-  `ANTHROPIC_API_KEY`. This suppresses `CLAUDE.md` and memory too, at the cost of OAuth.
-
-### What to do about it
-
-If you want a genuinely minimal profile without giving up OAuth, keep your global
-`~/.claude/CLAUDE.md` lean and move heavyweight, context-specific instructions into
-**plugins/skills** (which profiles *can* gate) rather than into global `CLAUDE.md`. That
-way the instructions travel with the profiles that want them, instead of loading
-everywhere.
-
 ## Package-lifecycle model
 
 Each profile is a fully isolated package: `install` = vendor into
@@ -207,25 +186,15 @@ cargo build --release
 # then copy target/release/claude-profile onto your PATH
 ```
 
-Prebuilt installers are configured via [cargo-dist](https://github.com/axodotdev/cargo-dist).
-They become available from the first tagged release (`vX.Y.Z`) onward and are not published
-yet:
+Or if you prefer to install directly:
 
 ```sh
-# macOS / Linux, once a release exists:
+# macOS / Linux:
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profile-installer.sh | sh
 
-# Windows PowerShell, once a release exists:
+# Windows PowerShell:
 irm https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profile-installer.ps1 | iex
-
-# Homebrew, once a release exists:
-brew install fuzzyalej/tap/claude-profile
-
-# crates.io, once published:
-cargo install claude-profile
 ```
-
-The generator config lives in `Cargo.toml` under `[workspace.metadata.dist]`.
 
 ### Shell completion
 
@@ -247,19 +216,6 @@ claude-profile self-uninstall --purge   # also removes ~/.claude-profiles (perso
                                          # profiles, cloned packs, locks, and every
                                          # profile's vendored plugins/skills)
 ```
-
-Or do it manually:
-
-- Remove the binary you installed: delete it from `PATH`, or `cargo uninstall claude-profile`
-  if you installed it with `cargo install`.
-- Optionally remove profile data (personal profiles, packs, locks, and every profile's
-  vendored plugins/skills):
-  ```sh
-  rm -rf ~/.claude-profiles
-  ```
-
-Either way, this never touches `~/.claude` — `claude-profile` never wrote anything there in
-the first place.
 
 ## Learn more
 
