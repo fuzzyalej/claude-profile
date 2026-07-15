@@ -350,7 +350,9 @@ mod tests {
         let mut lock = crate::lock::Lockfile::new("p");
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r#v1"}}"#);
         pin_marketplaces(&git, &p, &dir, &mut lock, false).unwrap();
+        assert_eq!(git.checkouts.borrow()[0], (PathBuf::from("/mkts/m"), "v1".to_string()));
         assert_eq!(lock.marketplaces.get("m").unwrap().sha, "sha_after_v1");
+        assert_eq!(lock.marketplaces.get("m").unwrap().source, "o/r#v1");
     }
 
     #[test]
