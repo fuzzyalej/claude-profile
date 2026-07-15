@@ -4,7 +4,7 @@ use crate::resolve::{resolve, ProfileSource};
 use std::path::{Path, PathBuf};
 
 pub enum RemovePlan {
-    Profile { json: PathBuf, lock: PathBuf },
+    Profile { json: PathBuf, lock: PathBuf, vendor: PathBuf },
     Pack { dir: PathBuf },
 }
 
@@ -33,15 +33,19 @@ pub fn remove_target(
         );
     }
     let lock = lock_path(name_or_repo, &resolved.path, &resolved.source, paths);
-    Ok(RemovePlan::Profile { json: resolved.path, lock })
+    let vendor = paths.profile_vendor_dir(name_or_repo);
+    Ok(RemovePlan::Profile { json: resolved.path, lock, vendor })
 }
 
 pub fn apply(plan: &RemovePlan) -> anyhow::Result<()> {
     match plan {
-        RemovePlan::Profile { json, lock } => {
+        RemovePlan::Profile { json, lock, vendor } => {
             std::fs::remove_file(json)?;
             if lock.exists() {
                 std::fs::remove_file(lock)?;
+            }
+            if vendor.exists() {
+                std::fs::remove_dir_all(vendor)?;
             }
         }
         RemovePlan::Pack { dir } => {
@@ -66,9 +70,10 @@ mod tests {
         let paths = crate::fs_paths::Paths::from_home(home);
         let plan = remove_target("foo", &paths, tmp.path(), None, &tmp.path().join("bundled")).unwrap();
         match plan {
-            RemovePlan::Profile { json, lock } => {
+            RemovePlan::Profile { json, lock, vendor } => {
                 assert!(json.ends_with(".claude-profiles/foo.json"));
                 assert!(lock.ends_with(".claude-profiles/foo.lock"));
+                assert!(vendor.ends_with(".claude-profiles/store/foo/vendor"));
             }
             _ => panic!("expected Profile plan"),
         }
@@ -116,9 +121,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let json = tmp.path().join("foo.json");
         let lock = tmp.path().join("foo.lock");
+        let vendor = tmp.path().join("vendor");
         fs::write(&json, "{}").unwrap();
         fs::write(&lock, "{}").unwrap();
-        apply(&RemovePlan::Profile { json: json.clone(), lock: lock.clone() }).unwrap();
+        apply(&RemovePlan::Profile { json: json.clone(), lock: lock.clone(), vendor }).unwrap();
         assert!(!json.exists());
         assert!(!lock.exists());
     }
@@ -132,5 +138,47 @@ mod tests {
         fs::write(profiles_dir.join("a.json"), r#"{"name":"a"}"#).unwrap();
         apply(&RemovePlan::Pack { dir: pack_dir.clone() }).unwrap();
         assert!(!pack_dir.exists());
+    }
+
+    #[test]
+    fn plan_profile_removal_includes_vendor_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let updir = home.join(".claude-profiles");
+        fs::create_dir_all(&updir).unwrap();
+        fs::write(updir.join("foo.json"), r#"{"name":"foo"}"#).unwrap();
+        let paths = crate::fs_paths::Paths::from_home(home);
+        let plan = remove_target("foo", &paths, tmp.path(), None, &tmp.path().join("bundled")).unwrap();
+        match plan {
+            RemovePlan::Profile { vendor, .. } => {
+                assert!(vendor.ends_with(".claude-profiles/store/foo/vendor"));
+            }
+            _ => panic!("expected Profile plan"),
+        }
+    }
+
+    #[test]
+    fn apply_deletes_vendor_dir_if_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let json = tmp.path().join("foo.json");
+        let lock = tmp.path().join("foo.lock");
+        let vendor = tmp.path().join("store").join("foo").join("vendor");
+        fs::write(&json, "{}").unwrap();
+        fs::create_dir_all(vendor.join("some-plugin@m")).unwrap();
+        apply(&RemovePlan::Profile { json: json.clone(), lock: lock.clone(), vendor: vendor.clone() }).unwrap();
+        assert!(!json.exists());
+        assert!(!vendor.exists());
+    }
+
+    #[test]
+    fn apply_tolerates_missing_vendor_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let json = tmp.path().join("foo.json");
+        fs::write(&json, "{}").unwrap();
+        let plan = RemovePlan::Profile {
+            json: json.clone(), lock: tmp.path().join("foo.lock"), vendor: tmp.path().join("nope"),
+        };
+        apply(&plan).unwrap(); // must not error just because vendor was never provisioned
+        assert!(!json.exists());
     }
 }
