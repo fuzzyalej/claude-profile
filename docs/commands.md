@@ -12,8 +12,6 @@ Commands:
   install         Install or refresh a profile repo (owner/repo[#ref]) without launching
   update          Git-pull profile repos and re-resolve floating marketplaces
   status          Show installed plugins/marketplaces and which profiles reference each
-  disable         Disable a profile's unshared plugins in global settings (saves tokens)
-  gc              Uninstall plugins/marketplaces no profile references
   remove          Delete a personal profile or cloned pack
   new             Scaffold a new profile in ~/.claude-profiles/
   test            Run `claude plugin eval` against a plugin/skill target
@@ -52,13 +50,15 @@ A combined launch pins marketplaces into its own lockfile at
 own lockfiles are untouched. A single profile behaves exactly as before.
 
 - **Reads:** the profile JSON (see [profiles.md](profiles.md) for resolution order), its
-  `<profile>.lock` file if present, and the currently installed plugins/marketplaces
-  (`claude plugin list --json`, marketplace listing).
-- **Writes:** on first launch (or whenever new marketplaces/plugins are referenced), installs
-  any missing marketplaces/plugins into the shared user scope and writes/updates
-  `<profile>.lock` with the resolved commit SHA of each marketplace used.
-- **Safety behavior:** before installing anything new, prints a confirmation prompt showing
-  each marketplace/plugin's source and pinned ref. `--yes` skips this prompt for scripted use.
+  `<profile>.lock` file if present, and what's already vendored for this profile under
+  `~/.claude-profiles/store/<profile>/vendor/`.
+- **Writes:** on first launch (or whenever new marketplaces/plugins are referenced), clones any
+  missing marketplaces into `~/.claude-profiles/store/marketplaces/`, copies each referenced
+  plugin/skill out of the pinned checkout into this profile's own
+  `~/.claude-profiles/store/<profile>/vendor/`, and writes/updates `<profile>.lock` with the
+  resolved commit SHA of each marketplace used.
+- **Safety behavior:** before vendoring anything new, prints a confirmation prompt showing each
+  marketplace/plugin's source and pinned ref. `--yes` skips this prompt for scripted use.
   Anything after a literal `--` is forwarded to the underlying `claude` invocation unchanged
   (e.g. `claude-profile rust-developer -- --continue`).
 
@@ -76,8 +76,8 @@ works here too.
 Usage: claude-profile show <TARGET>
 ```
 
-Prints a profile's details and exactly what launching it would install, without launching or
-installing anything.
+Prints a profile's details and exactly what launching it would vendor, without launching or
+vendoring anything.
 
 - `<TARGET>` as a bare name: resolves the profile through the normal search path (see
   [profiles.md](profiles.md)), expanding `extends` so the plugin/marketplace lists reflect the
@@ -87,9 +87,12 @@ installing anything.
   clone. Nothing is written to `~/.claude-profiles/packs/`.
 - **Output:** name, description, author (the profile's `author` field, falling back to the source
   repo owner, else `—`), source, then the marketplaces, plugins, MCP servers, and plugin dirs it
-  declares. Each plugin and marketplace is marked `(installed)` if already present in the shared
-  user scope or `+ … (new)` if launching would install it. On a color terminal, installed entries
-  are dimmed and new ones green; output is plain text when piped or when `NO_COLOR` is set.
+  declares. A marketplace is marked `(installed)` if its clone already exists under
+  `~/.claude-profiles/store/marketplaces/`, else `+ … (new)`. A plugin/skill is marked
+  `(installed)` if it's already vendored into this profile's own
+  `~/.claude-profiles/store/<profile>/vendor/`, else `+ … (new)` if launching would vendor it.
+  On a color terminal, installed entries are dimmed and new ones green; output is plain text
+  when piped or when `NO_COLOR` is set.
 
 ## `install`
 
@@ -155,79 +158,30 @@ with the highest-priority location winning, along with where each one resolved f
 Usage: claude-profile status
 ```
 
-Shows every plugin and marketplace currently installed in the shared user scope
-(`claude plugin list --json` and the marketplace listing), and which known profile(s), if any,
-reference each one. Entries no profile references are flagged `(unreferenced)`: candidates
-for `gc`.
-
-## `disable`
-
-```
-Usage: claude-profile disable [OPTIONS] <PROFILE>
-
-Options:
-      --dry-run  Report what would be disabled without writing settings
-```
-
-Disables, in the **global** `~/.claude/settings.json`, the plugins a profile references that no
-*other* discoverable profile references. Use it to stop a profile's plugins from loading (and
-costing context) in ordinary `claude` sessions you run without a profile.
-
-- **Reads:** every discoverable profile (same search path as `list`), expanding `extends` so
-  inherited plugins count toward the "shared" set.
-- **Writes:** sets `enabledPlugins["<id>"] = false` for each unshared plugin in
-  `~/.claude/settings.json`, preserving every other setting. Creates the file / `enabledPlugins`
-  map if absent.
-- **Does not uninstall anything.** The plugins stay on disk; launching `claude-profile <profile>`
-  re-enables them for that session (launch passes its own `--settings`, overriding the global
-  disabled state). To re-enable them globally, launch the profile or re-enable in settings.
-- Plugins shared with another profile are left enabled, so disabling one profile never breaks
-  another. If none of the profile's plugins are unshared, it reports that and writes nothing.
-- `--dry-run` lists what it would disable without touching settings.
-
-## `gc`
-
-```
-Usage: claude-profile gc [OPTIONS]
-
-Options:
-      --dry-run
-```
-
-Uninstalls plugins and removes marketplaces that no known profile references, keeping the
-shared install set from growing unbounded as profiles come and go.
-
-- **Reads:** every profile it can discover (same search path as `list`) to build a reference
-  map, plus the currently installed plugins/marketplaces.
-- **Writes:** without `--dry-run`, calls `claude plugin uninstall` / marketplace removal for
-  everything unreferenced.
-- **Safety behavior:** `--dry-run` reports what would be removed without touching anything.
-  `gc` only ever considers plugins and marketplaces reported by `claude plugin list`. It never
-  touches loose skills directories, so a manifest-bearing `@skills-dir` skill is unaffected
-  either way (skills aren't installed/uninstalled by `claude-profile`, only gated at launch).
-  A plugin or marketplace referenced by *any* discoverable profile is never removed, even if
-  that profile currently doesn't use it in an active session.
+Shows, per discoverable profile, what's vendored under
+`~/.claude-profiles/store/<profile>/vendor/`: `(not yet provisioned)` if the profile has never
+been launched/installed, otherwise the count and list of vendored plugin/skill ids. There is no
+shared install to report on — each profile's vendor tree is independent, so nothing here is
+ever "unreferenced" by another profile.
 
 ## `remove`
 
 ```
-Usage: claude-profile remove [OPTIONS] <TARGET>
-
-Options:
-      --prune  Also gc plugins/marketplaces left unreferenced afterward
+Usage: claude-profile remove <TARGET>
 ```
 
-Deletes profile **data**, not installed plugin code.
+Deletes a profile's data **and** its vendored plugin/skill copies — a real uninstall, not a
+disable.
 
-- `<TARGET>` as a bare name (no `/`): deletes that personal/project profile's JSON file and its
-  `.lock` file, if any.
+- `<TARGET>` as a bare name (no `/`): deletes that personal/project profile's JSON file, its
+  `.lock` file if any, and its entire `~/.claude-profiles/store/<name>/vendor/` directory.
 - `<TARGET>` as `owner/repo`: deletes the entire cloned pack directory
   (`~/.claude-profiles/packs/owner--repo/`).
 - **Safety behavior:** refuses to remove one of the engine's own bundled `profiles/` (e.g.
   `rust-developer`): those ship with the binary and aren't user data.
-- Does **not** uninstall any plugins by default. Other profiles may still reference them.
-  Pass `--prune` to additionally run `gc` immediately afterward, cleaning up anything left
-  unreferenced by the removal.
+- Because each profile's vendored plugins/skills are its own private copies, removing one
+  profile never affects another's vendor tree, even if both reference the same
+  `plugin@marketplace` id. There's nothing to prune or garbage-collect afterward.
 
 ## `new`
 
@@ -315,15 +269,12 @@ Removes the `claude-profile` binary itself.
 
 - **Writes:** deletes the currently running executable (`std::env::current_exe()`), i.e.
   whatever binary you actually invoked.
-- `--purge`: additionally removes the entire `~/.claude-profiles` directory (personal
-  profiles, cloned packs, and all `.lock` files). Without `--purge`, profile data is left in
-  place.
-- **Safety behavior:** never touches `~/.claude`. Plugins/marketplaces provisioned into the
-  shared Claude Code scope are left installed either way, since they belong to Claude Code, not
-  `claude-profile`. Regardless of whether `--purge` is given, the command prints, as an
-  advisory, every plugin currently provisioned into `~/.claude` that any profile references.
-  These are **not** removed by `self-uninstall`; run `claude-profile gc` first if you want them
-  gone too.
+- `--purge`: additionally removes the entire `~/.claude-profiles` directory — personal
+  profiles, cloned packs, all `.lock` files, and every profile's vendored plugins/skills under
+  `store/`. Without `--purge`, profile data (and vendored plugin/skill copies) is left in place.
+- **Safety behavior:** never touches `~/.claude`. Since every plugin/skill claude-profile uses
+  lives in its own vendor tree under `~/.claude-profiles/store/`, `--purge` alone is a complete
+  uninstall — there is no separate shared-scope cleanup step needed.
 
 See the [top-level README](../README.md#uninstalling) for the full uninstall walkthrough
 (including the manual, no-binary-needed path).

@@ -1,8 +1,9 @@
 # Authoring profiles
 
 A profile is a small JSON file that tells `claude-profile` exactly which plugins, skills,
-marketplaces, and MCP servers should be active for a session. Everything else installed on
-the machine is explicitly disabled for that launch.
+marketplaces, and MCP servers should be active for a session. Each is vendored (cloned/copied)
+into that profile's own private directory and loaded for the session via `--plugin-dir`;
+nothing else on the machine is registered at all.
 
 > **In a hurry?** `claude-profile new <name>` scaffolds an empty profile in
 > `~/.claude-profiles/` with every field present and ready to fill in — see
@@ -47,10 +48,11 @@ A minimal profile is just a name and one plugin:
 }
 ```
 
-Launching it (`claude-profile rust-minimal`) provisions the `superpowers-marketplace`
-marketplace and the `superpowers` plugin if they aren't already installed, then launches
-`claude` with only that plugin enabled. Every other plugin on the machine is turned off for
-the session.
+Launching it (`claude-profile rust-minimal`) clones the `superpowers-marketplace` marketplace
+if it isn't already cached, vendors a copy of the `superpowers` plugin into
+`~/.claude-profiles/store/rust-minimal/vendor/` if it isn't already there, then launches
+`claude --plugin-dir`-ed at only that vendor directory. Nothing else on the machine is loaded
+into the session.
 
 The engine ships richer reference profiles under `profiles/` — for example `rust-developer`,
 `python-developer`, and `react-developer` each layer a language server, live docs
@@ -67,9 +69,9 @@ top of that same `superpowers` core. Run `claude-profile list` to see them, or
 | `description` | string, optional | Human-readable summary shown by tooling. |
 | `author` | string, optional | Profile author, shown by [`show`](commands.md#show). When absent, `show` falls back to the source repo owner (for pack/URL profiles), else `—`. |
 | `marketplaces` | object, optional | Maps a local marketplace name to its source: `owner/repo` (floating, tracks the default branch), `owner/repo#ref` (pinned to a tag/branch/SHA, checked out at that ref and never silently moved), or a full `https://…` / `git@…` SSH git URL (also `#ref`-capable). |
-| `plugins` | array of strings, optional | Plugins to enable, as `plugin@marketplace` ids. Everything else installed is set to `false` for the session. |
+| `plugins` | array of strings, optional | Plugins/skills to vendor, as `plugin@marketplace` ids (or `<name>@skills-dir` for a personal loose skill). Each is copied into this profile's own `~/.claude-profiles/store/<profile>/vendor/`; nothing is installed globally. |
 | `pluginDirs` | array of strings, optional | Local paths passed to `claude --plugin-dir`, for plugins developed alongside the profile rather than published to a marketplace. |
-| `mcpServers` | object, optional | MCP server definitions passed via `--mcp-config`. Because launches use `--strict-mcp-config`, **any MCP server bundled inside an enabled plugin is otherwise dropped**; redeclare it here if you need it. Empty (`{}`) means no MCP servers for the session. |
+| `mcpServers` | object, optional | MCP server definitions passed via `--mcp-config`. Because launches use `--strict-mcp-config`, **any MCP server bundled inside a vendored plugin is otherwise dropped**; redeclare it here if you need it. Empty (`{}`) means no MCP servers for the session. |
 | `bare` | boolean, optional (default `false`) | API-key-only absolute isolation. Passes `--bare` to `claude`, which additionally suppresses global/project `CLAUDE.md` and auto-memory: see [how it works](how-it-works.md#what-is-not-gated). Requires `ANTHROPIC_API_KEY` authentication; it drops OAuth/keychain login. |
 | `removePlugins` | array of strings, optional | Plugins (as `plugin@marketplace` ids) to drop from the set inherited when this profile `extends` another. Has no effect unless the profile sets `extends`. See [Inheriting from another profile](#inheriting-from-another-profile). |
 
@@ -126,17 +128,12 @@ one plugin and drops another:
 }
 ```
 
-## Making a personal loose skill gateable
+## Referencing a personal loose skill
 
-Plugins and marketplace-installed skills are always gateable. A **loose skill** living
-directly under `~/.claude/skills` or `.claude/skills` is different:
-
-- If the skill folder has a `.claude-plugin/plugin.json` manifest, it's treated like a plugin
-  and loads as `<name>@skills-dir`. You can reference it in a profile's `plugins` list and it
-  will be gated like anything else.
-- A bare `SKILL.md` with **no manifest** auto-loads in every Claude Code session regardless of
-  profile, and cannot be gated. `claude-profile` warns at launch about any such skills so they
-  don't load unnoticed.
-
-If you want a personal skill to be containable by profiles, add a minimal
-`.claude-plugin/plugin.json` manifest to its folder.
+A **loose skill** living directly under `~/.claude/skills/<name>` or
+`.claude/skills/<name>` (project-local takes precedence) can be referenced
+in a profile's `plugins` list as `<name>@skills-dir`. claude-profile vendors
+a *copy* of that folder into the profile's own vendor directory, generating
+a minimal `.claude-plugin/plugin.json` manifest on the copy if the original
+doesn't have one. The original skill folder is never modified — only the
+vendored copy gains a manifest.
