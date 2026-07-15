@@ -24,6 +24,9 @@ impl Paths {
         self.home.join(".claude").join("skills")
     }
 
+    // No longer read directly by claude-profile (plugins/skills are vendored per-profile
+    // instead of touching global ~/.claude state), but kept for parity/tests.
+    #[allow(dead_code)]
     pub fn claude_settings_path(&self) -> PathBuf {
         self.home.join(".claude").join("settings.json")
     }
