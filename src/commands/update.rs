@@ -37,7 +37,7 @@ mod tests {
     use crate::git::GitCli;
     use std::cell::RefCell;
     use std::fs;
-    use std::path::{Path as StdPath, PathBuf};
+    use std::path::Path as StdPath;
 
     struct MockGit { head: String, checkouts: RefCell<Vec<String>> }
     impl GitCli for MockGit {
