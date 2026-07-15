@@ -48,7 +48,7 @@ enum Command {
         #[arg(long)]
         frozen: bool,
     },
-    /// Show installed plugins/marketplaces and which profiles reference each.
+    /// Show each profile's vendored plugins/skills under ~/.claude-profiles/store/.
     Status,
     /// Delete a personal profile or cloned pack.
     Remove { target: String },

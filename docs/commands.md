@@ -11,7 +11,7 @@ Commands:
   show            Show a profile's details and what it would install
   install         Install or refresh a profile repo (owner/repo[#ref]) without launching
   update          Git-pull profile repos and re-resolve floating marketplaces
-  status          Show installed plugins/marketplaces and which profiles reference each
+  status          Show each profile's vendored plugins/skills under ~/.claude-profiles/store/
   remove          Delete a personal profile or cloned pack
   new             Scaffold a new profile in ~/.claude-profiles/
   test            Run `claude plugin eval` against a plugin/skill target
