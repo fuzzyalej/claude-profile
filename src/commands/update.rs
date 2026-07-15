@@ -28,7 +28,7 @@ pub fn reresolve_profile<G: GitCli>(
     lock: &mut Lockfile,
 ) -> anyhow::Result<()> {
     pin_marketplaces(git, profile, mkt_dirs, lock, true)?;
-    vendor_plugins(git, profile, profile_key, cwd, paths, true)
+    vendor_plugins(git, profile, profile_key, cwd, paths, true, lock)
 }
 
 #[cfg(test)]
