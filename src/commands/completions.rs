@@ -156,7 +156,13 @@ _claude_profile() {
     esac
 }
 
-_claude_profile
+# This script is sourced from .zshrc rather than autoloaded from $fpath, so the
+# `#compdef` tag above is inert and we must register the function ourselves. That
+# needs the completion system loaded; initialise it if a framework hasn't already.
+if ! command -v compdef >/dev/null 2>&1; then
+    autoload -Uz compinit && compinit -u
+fi
+compdef _claude_profile claude-profile
 "#;
 
 const FISH: &str = r#"# claude-profile fish completion
@@ -198,6 +204,15 @@ mod tests {
         for shell in [Shell::Bash, Shell::Zsh, Shell::Fish, Shell::Powershell] {
             assert!(script(shell).contains("profile-names"));
         }
+    }
+
+    #[test]
+    fn zsh_script_registers_via_compdef_since_it_is_sourced() {
+        // Sourced (not autoloaded) scripts must call `compdef` to bind the
+        // completion; the `#compdef` tag alone is inert when sourced.
+        let zsh = script(Shell::Zsh);
+        assert!(zsh.contains("compdef _claude_profile claude-profile"));
+        assert!(zsh.contains("compinit"));
     }
 
     #[test]
