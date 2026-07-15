@@ -91,6 +91,9 @@ fn vendor_marketplace_entry<G: GitCli>(
             vendor_fs::copy_dir_atomic(&src, dest)
         }
         PluginSource::ExternalRepo { repo } => vendor_external_repo(git, paths, repo, plugin_id, force, dest, lock),
+        PluginSource::GitSubdir { url, path, git_ref, sha } => vendor_git_subdir(
+            git, paths, url, path, git_ref.as_deref(), sha.as_deref(), plugin_id, force, dest, lock,
+        ),
     }
 }
 
@@ -116,6 +119,39 @@ fn vendor_external_repo<G: GitCli>(
     let sha = git.head_sha(&ext_dir)?;
     lock.plugins.insert(plugin_id.to_string(), LockedMarketplace { source: repo.to_string(), sha });
     vendor_fs::copy_dir_atomic(&ext_dir, dest)
+}
+
+/// Vendor a plugin living in a subdirectory of a separate repo, pinned to an
+/// explicit `sha` and/or floating `ref`. Unlike `vendor_external_repo`, only
+/// `subpath` is copied out, and the checkout always moves to the pinned target
+/// (not gated by `force`) since each `git-subdir` entry names its own commit —
+/// the shared repo clone can't just be left wherever a previous plugin left it.
+#[allow(clippy::too_many_arguments)]
+fn vendor_git_subdir<G: GitCli>(
+    git: &G,
+    paths: &Paths,
+    url: &str,
+    subpath: &str,
+    git_ref: Option<&str>,
+    pinned_sha: Option<&str>,
+    plugin_id: &str,
+    force: bool,
+    dest: &Path,
+    lock: &mut Lockfile,
+) -> anyhow::Result<()> {
+    let repo_ref = parse_repo_ref(url)?;
+    let ext_dir = paths.external_marketplace_dir(&repo_ref.owner, &repo_ref.repo);
+    if !ext_dir.is_dir() {
+        git.clone(&repo_ref.clone_url(), &ext_dir)?;
+    } else if force {
+        git.pull(&ext_dir)?;
+    }
+    if let Some(target) = pinned_sha.or(git_ref) {
+        git.checkout(&ext_dir, target)?;
+    }
+    let sha = git.head_sha(&ext_dir)?;
+    lock.plugins.insert(plugin_id.to_string(), LockedMarketplace { source: url.to_string(), sha });
+    vendor_fs::copy_dir_atomic(&ext_dir.join(subpath), dest)
 }
 
 /// Find a personal skill's source folder: project-local `.claude/skills/<name>`
@@ -195,8 +231,10 @@ fn checkout_target(
         return explicit_ref.clone();
     }
     match locked {
-        Some(l) => Some(l.sha.clone()),
-        None => explicit_ref.clone(),
+        // An empty sha means a previous run found this marketplace wasn't a git checkout
+        // (see the `is_repo` guard in `pin_marketplaces`); it's not a real pin to reproduce.
+        Some(l) if !l.sha.is_empty() => Some(l.sha.clone()),
+        _ => explicit_ref.clone(),
     }
 }
 
@@ -335,6 +373,67 @@ mod tests {
         assert!(paths.profile_vendor_dir("p").join("ext@m").is_dir());
         let locked = lock.plugins.get("ext@m").expect("external plugin recorded in lock");
         assert_eq!(locked.source, "owner/ext");
+        assert_eq!(locked.sha, "sha1");
+    }
+
+    #[test]
+    fn vendors_git_subdir_plugin_copies_only_subpath_and_checks_out_pinned_sha() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
+        let mkt_dir = paths.marketplace_clone_dir("m");
+        fs::create_dir_all(mkt_dir.join(".claude-plugin")).unwrap();
+        fs::write(
+            mkt_dir.join(".claude-plugin").join("marketplace.json"),
+            r#"{"plugins":[{"name":"sub","source":{
+                "source":"git-subdir",
+                "url":"https://github.com/owner/repo.git",
+                "path":"plugins/sub",
+                "sha":"pinned123"
+            }}]}"#,
+        ).unwrap();
+
+        // Pre-seed the "clone" with the subdir we want plus a sibling we don't.
+        let ext_dir = paths.external_marketplace_dir("owner", "repo");
+        fs::create_dir_all(ext_dir.join("plugins").join("sub")).unwrap();
+        fs::write(ext_dir.join("plugins").join("sub").join("SKILL.md"), "# sub").unwrap();
+        fs::create_dir_all(ext_dir.join("plugins").join("other")).unwrap();
+
+        let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["sub@m"]}"#);
+        let git = MockGit::new("head_after_checkout");
+        let mut lock = crate::lock::Lockfile::new("p");
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
+
+        // checks out the pinned sha even though the repo dir already existed (force=false)
+        assert_eq!(git.checkouts.borrow()[0], (ext_dir.clone(), "pinned123".to_string()));
+        // only the named subpath is vendored, not the whole repo
+        let vendored = paths.profile_vendor_dir("p").join("sub@m");
+        assert!(vendored.join("SKILL.md").is_file());
+        assert!(!vendored.join("other").exists());
+        let locked = lock.plugins.get("sub@m").expect("recorded in lock");
+        assert_eq!(locked.sha, "head_after_checkout");
+        assert_eq!(locked.source, "https://github.com/owner/repo.git");
+    }
+
+    #[test]
+    fn vendors_bare_url_plugin_same_as_external_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
+        let mkt_dir = paths.marketplace_clone_dir("m");
+        fs::create_dir_all(mkt_dir.join(".claude-plugin")).unwrap();
+        fs::write(
+            mkt_dir.join(".claude-plugin").join("marketplace.json"),
+            r#"{"plugins":[{"name":"superpowers","source":{"source":"url","url":"https://github.com/obra/superpowers.git"}}]}"#,
+        ).unwrap();
+
+        let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["superpowers@m"]}"#);
+        let git = MockGit::new("sha1");
+        let mut lock = crate::lock::Lockfile::new("p");
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
+
+        assert!(git.cloned.borrow().iter().any(|(url, _)| url == "https://github.com/obra/superpowers.git"));
+        assert!(paths.profile_vendor_dir("p").join("superpowers@m").is_dir());
+        let locked = lock.plugins.get("superpowers@m").expect("recorded in lock");
+        assert_eq!(locked.source, "https://github.com/obra/superpowers.git");
         assert_eq!(locked.sha, "sha1");
     }
 
@@ -510,5 +609,23 @@ mod tests {
         pin_marketplaces(&git, &profile, &dir, &mut lock, true).unwrap();
         // explicit ref stays pinned even when updating floating
         assert_eq!(git.checkouts.borrow()[0].1, "v3");
+    }
+
+    #[test]
+    fn stale_empty_locked_sha_is_not_checked_out() {
+        // Regression: a marketplace previously recorded as non-git (empty sha, see
+        // `non_git_marketplace_degrades_gracefully`) but now found to be a real git
+        // checkout must not `git checkout ""` — that's an invalid pathspec and fails
+        // the whole launch. The stale empty sha should be ignored, not treated as a pin.
+        let profile = crate::profile::Profile::from_json_str(
+            r#"{"name":"p","marketplaces":{"m":"o/r"}}"#).unwrap(); // no explicit ref
+        let git = MockGit::new("head_sha"); // present: true (is a git checkout this time)
+        let dir = |_n: &str| PathBuf::from("/mkts/m");
+        let mut lock = crate::lock::Lockfile::new("p");
+        lock.marketplaces.insert("m".into(),
+            crate::lock::LockedMarketplace { source: "o/r".into(), sha: "".into() });
+        pin_marketplaces(&git, &profile, &dir, &mut lock, false).unwrap();
+        assert!(git.checkouts.borrow().is_empty());
+        assert_eq!(lock.marketplaces.get("m").unwrap().sha, "head_sha");
     }
 }
