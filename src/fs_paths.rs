@@ -49,6 +49,22 @@ impl Paths {
     pub fn marketplaces_seed_file(&self) -> PathBuf {
         self.user_profiles_dir().join("marketplaces.txt")
     }
+
+    pub fn store_dir(&self) -> PathBuf {
+        self.user_profiles_dir().join("store")
+    }
+
+    pub fn marketplace_clone_dir(&self, name: &str) -> PathBuf {
+        self.store_dir().join("marketplaces").join(name)
+    }
+
+    pub fn external_marketplace_dir(&self, owner: &str, repo: &str) -> PathBuf {
+        self.store_dir().join("marketplaces").join("_external").join(format!("{owner}--{repo}"))
+    }
+
+    pub fn profile_vendor_dir(&self, profile_key: &str) -> PathBuf {
+        self.store_dir().join(profile_key).join("vendor")
+    }
 }
 
 #[cfg(test)]
@@ -72,5 +88,23 @@ mod tests {
         assert_eq!(p.index_file(), PathBuf::from("/h/.claude-profiles/.index-cache/index.json"));
         assert_eq!(p.index_repos_dir(), PathBuf::from("/h/.claude-profiles/.index-cache/repos"));
         assert_eq!(p.marketplaces_seed_file(), PathBuf::from("/h/.claude-profiles/marketplaces.txt"));
+    }
+
+    #[test]
+    fn derives_store_and_vendor_paths() {
+        let p = Paths::from_home(PathBuf::from("/h"));
+        assert_eq!(p.store_dir(), PathBuf::from("/h/.claude-profiles/store"));
+        assert_eq!(
+            p.marketplace_clone_dir("superpowers-marketplace"),
+            PathBuf::from("/h/.claude-profiles/store/marketplaces/superpowers-marketplace")
+        );
+        assert_eq!(
+            p.external_marketplace_dir("fuzzyalej", "openpowers"),
+            PathBuf::from("/h/.claude-profiles/store/marketplaces/_external/fuzzyalej--openpowers")
+        );
+        assert_eq!(
+            p.profile_vendor_dir("rust-developer"),
+            PathBuf::from("/h/.claude-profiles/store/rust-developer/vendor")
+        );
     }
 }
