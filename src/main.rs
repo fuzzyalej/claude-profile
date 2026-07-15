@@ -198,7 +198,13 @@ fn handle_update(
     } else {
         for (name, profile) in &profiles {
             let Some(profile) = resolve_extends_or_warn(name, profile, paths, cwd, env, bundled) else { continue };
-            provision::ensure_marketplace_clones(&git::RealGit, &profile, paths)?;
+            let missing = profile.marketplaces.keys().find(|mkt| !paths.marketplace_clone_dir(mkt).is_dir());
+            if let Some(mkt) = missing {
+                eprintln!(
+                    "skipping '{name}': marketplace '{mkt}' not cloned yet (launch the profile once to provision it)"
+                );
+                continue;
+            }
             let resolved = resolve::resolve(name, paths, cwd, env, bundled)?;
             let lp = lock::lock_path(name, &resolved.path, &resolved.source, paths);
             let mut lf = lock::Lockfile::load(&lp)?.unwrap_or_else(|| lock::Lockfile::new(name));
