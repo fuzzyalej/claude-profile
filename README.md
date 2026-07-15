@@ -10,7 +10,7 @@ loaded for that session.
 
 ```sh
 claude-profile rust-developer      # a lean Rust session — nothing else loaded
-claude-profile frontend design     # combine profiles for a task that spans both
+claude-profile rust-developer frontend  # combine profiles for a task that spans both
 claude-profile fuzzyalej/security  # install a shared profile repo, then launch it
 ```
 
@@ -256,6 +256,15 @@ the first place.
 - [Command reference](docs/commands.md) — every command, its flags, and behavior.
 - [How it works](docs/how-it-works.md) — the isolation model, provisioning, pinning, and known limitations.
 - [Statusline snippet](docs/statusline.md) — show the active profile in your Claude Code statusline.
+
+### For contributors
+
+Design specs and implementation plans behind notable features in `claude-profile` itself
+(not needed to author or use a profile — only if you're changing the tool):
+
+- [Vendored plugin/skill isolation](docs/superpowers/specs/2026-07-15-vendored-plugin-isolation-design.md) ([plan](docs/superpowers/plans/2026-07-15-vendored-plugin-isolation.md)) — why provisioning copies plugins into a private vendor tree instead of installing into `~/.claude`.
+- [Cross-marketplace plugin finder](docs/superpowers/specs/2026-07-11-plugin-finder-design.md) ([plan](docs/superpowers/plans/2026-07-11-plugin-finder.md)) — the offline index behind `claude-profile find`.
+- [Install/remove progress spinner](docs/superpowers/specs/2026-07-14-install-spinner-design.md) ([plan](docs/superpowers/plans/2026-07-14-install-spinner.md)) — the provisioning UX shown during vendoring.
 
 ## License
 

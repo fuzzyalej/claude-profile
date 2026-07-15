@@ -54,12 +54,17 @@ if it isn't already cached, vendors a copy of the `superpowers` plugin into
 `claude --plugin-dir`-ed at only that vendor directory. Nothing else on the machine is loaded
 into the session.
 
-The engine ships richer reference profiles under `profiles/` — for example `rust-developer`,
-`python-developer`, and `react-developer` each layer a language server, live docs
-(`context7`), backend/database workflows, performance, testing, review, and commit plugins on
-top of that same `superpowers` core. Run `claude-profile list` to see them, or
-`claude-profile show <name>` to inspect one before launching. These were composed with
-[`find`](commands.md#find) against the cross-marketplace plugin index.
+The engine ships richer reference profiles under `profiles/` for many stacks (Rust, Python,
+Go, Java, .NET, Ruby, Rails, TypeScript, Angular, Vue, React, plus a Tauri-based
+`rust-desktop-developer` and a `frontend` design-implementation profile). Most of these
+`extend` a shared `dev-base` profile — the spec-driven `openpowers`/`superpowers` workflow,
+live docs (`context7`), code review, and commit plugins — and layer a language server plus
+backend/database/performance/testing plugins on top (see
+[Inheriting from another profile](#inheriting-from-another-profile) below for how `extends`
+works, using `rust-developer`/`dev-base` as a real example). Run `claude-profile list` to see
+the full set, or `claude-profile show <name>` to inspect one (with `extends` expanded) before
+launching. These were composed with [`find`](commands.md#find) against the cross-marketplace
+plugin index.
 
 ## Fields
 
