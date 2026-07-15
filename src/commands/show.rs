@@ -1,4 +1,3 @@
-use crate::claude::{self, ClaudeCli};
 use crate::fs_paths::Paths;
 use crate::git::{parse_repo_ref, RealGit};
 use crate::profile::Profile;
@@ -103,6 +102,30 @@ fn pack_owner(source: &resolve::ProfileSource) -> Option<String> {
     }
 }
 
+/// Which of a profile's marketplaces/plugins are already vendored for `profile_key`:
+/// a marketplace counts as installed once its clone exists under the shared
+/// `store/marketplaces/` cache; a plugin/skill counts once its own entry exists under
+/// this profile's `store/<profile_key>/vendor/`.
+fn installed_sets(profile: &Profile, profile_key: &str, paths: &Paths) -> (BTreeSet<String>, BTreeSet<String>) {
+    let installed_mkts: BTreeSet<String> = profile
+        .marketplaces
+        .keys()
+        .filter(|name| paths.marketplace_clone_dir(name).is_dir())
+        .cloned()
+        .collect();
+
+    let vendor_dir = paths.profile_vendor_dir(profile_key);
+    let installed_plugins: BTreeSet<String> = std::fs::read_dir(&vendor_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+
+    (installed_mkts, installed_plugins)
+}
+
 pub fn run(
     target: &str,
     paths: &Paths,
@@ -110,11 +133,6 @@ pub fn run(
     env: Option<&Path>,
     bundled: &Path,
 ) -> anyhow::Result<()> {
-    let cli = claude::RealClaude::new();
-    let installed_plugins: BTreeSet<String> =
-        cli.list_plugins()?.into_iter().map(|p| p.id).collect();
-    let installed_mkts: BTreeSet<String> =
-        cli.list_marketplaces()?.into_iter().map(|m| m.name).collect();
     let color = use_color();
 
     if target.contains('/') {
@@ -123,6 +141,8 @@ pub fn run(
         let profile = pack::read_default_profile(&dir)?;
         let repo_owner = parse_repo_ref(target)?.owner;
         let author = profile.author.clone().or(Some(repo_owner));
+        let key = pack::default_profile_name(&dir)?;
+        let (installed_mkts, installed_plugins) = installed_sets(&profile, &key, paths);
         print!(
             "{}",
             format_show(&profile, author.as_deref(), target, &installed_plugins, &installed_mkts, color)
@@ -139,6 +159,7 @@ pub fn run(
         let profile = extends::resolve_extends(resolved.profile, &|parent| {
             Ok(resolve::resolve(parent, paths, cwd, env, bundled)?.profile)
         })?;
+        let (installed_mkts, installed_plugins) = installed_sets(&profile, target, paths);
         print!(
             "{}",
             format_show(&profile, author.as_deref(), &label, &installed_plugins, &installed_mkts, color)
@@ -157,6 +178,21 @@ mod tests {
 
     fn set(items: &[&str]) -> BTreeSet<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn installed_sets_reflects_marketplace_clones_and_vendored_plugins() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        std::fs::create_dir_all(paths.marketplace_clone_dir("have")).unwrap();
+        std::fs::create_dir_all(paths.profile_vendor_dir("p").join("have@have")).unwrap();
+
+        let profile = prof(
+            r#"{"name":"p","marketplaces":{"have":"o/r","missing":"o/s"},"plugins":["have@have","new@have"]}"#,
+        );
+        let (installed_mkts, installed_plugins) = installed_sets(&profile, "p", &paths);
+        assert_eq!(installed_mkts, set(&["have"]));
+        assert_eq!(installed_plugins, set(&["have@have"]));
     }
 
     #[test]
