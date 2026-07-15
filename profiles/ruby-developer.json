@@ -1,16 +1,11 @@
 {
   "name": "ruby-developer",
+  "extends": "dev-base",
   "description": "TDD-driven Ruby: language dev + ruby-lsp, live docs, refactoring, performance, testing, review + commit workflows",
   "marketplaces": {
-    "claude-code-workflows": "wshobson/agents",
-    "claude-plugins-official": "anthropics/claude-plugins-official",
-    "superpowers-marketplace": "obra/superpowers-marketplace"
+    "claude-code-workflows": "wshobson/agents"
   },
   "plugins": [
-    "superpowers@superpowers-marketplace",
-    "context7@claude-plugins-official",
-    "code-review@claude-plugins-official",
-    "commit-commands@claude-plugins-official",
     "code-refactoring@claude-code-workflows",
     "performance-testing-review@claude-code-workflows",
     "application-performance@claude-code-workflows",
@@ -19,13 +14,5 @@
     "ruby-lsp@claude-plugins-official"
   ],
   "pluginDirs": [],
-  "mcpServers": {
-    "context7": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@upstash/context7-mcp"
-      ]
-    }
-  }
+  "mcpServers": {}
 }
