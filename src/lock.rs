@@ -16,11 +16,17 @@ pub struct Lockfile {
     pub profile: String,
     #[serde(default)]
     pub marketplaces: BTreeMap<String, LockedMarketplace>,
+    /// External-repo plugin sources (`{"source":"github","repo":"owner/x"}` in a
+    /// marketplace.json), keyed by plugin id. Unlike marketplaces, these aren't
+    /// checked out to a locked SHA on replay — the lock only records what was last
+    /// vendored, so `update --force` can tell whether the source moved.
+    #[serde(default)]
+    pub plugins: BTreeMap<String, LockedMarketplace>,
 }
 
 impl Lockfile {
     pub fn new(profile: &str) -> Lockfile {
-        Lockfile { profile: profile.to_string(), marketplaces: BTreeMap::new() }
+        Lockfile { profile: profile.to_string(), marketplaces: BTreeMap::new(), plugins: BTreeMap::new() }
     }
 
     pub fn load(path: &Path) -> anyhow::Result<Option<Lockfile>> {
@@ -65,10 +71,21 @@ mod tests {
         let path = tmp.path().join("x.lock");
         let mut lf = Lockfile::new("x");
         lf.marketplaces.insert("m".into(), LockedMarketplace { source: "o/r".into(), sha: "abc123".into() });
+        lf.plugins.insert("ext@m".into(), LockedMarketplace { source: "owner/ext".into(), sha: "def456".into() });
         lf.save(&path).unwrap();
         let loaded = Lockfile::load(&path).unwrap().unwrap();
         assert_eq!(loaded.profile, "x");
         assert_eq!(loaded.marketplaces.get("m").unwrap().sha, "abc123");
+        assert_eq!(loaded.plugins.get("ext@m").unwrap().sha, "def456");
+    }
+
+    #[test]
+    fn loads_pre_vendoring_lockfile_missing_plugins_field() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("old.lock");
+        std::fs::write(&path, r#"{"profile":"x","marketplaces":{"m":{"source":"o/r","sha":"abc"}}}"#).unwrap();
+        let loaded = Lockfile::load(&path).unwrap().unwrap();
+        assert!(loaded.plugins.is_empty());
     }
 
     #[test]

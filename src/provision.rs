@@ -32,6 +32,7 @@ pub fn vendor_plugins<G: GitCli>(
     cwd: &Path,
     paths: &Paths,
     force: bool,
+    lock: &mut Lockfile,
 ) -> anyhow::Result<()> {
     for plugin_id in &profile.plugins {
         let dest = paths.profile_vendor_dir(profile_key).join(plugin_id);
@@ -47,34 +48,74 @@ pub fn vendor_plugins<G: GitCli>(
             .ok_or_else(|| anyhow::anyhow!("plugin id '{plugin_id}' is missing '@marketplace'"))?;
 
         if marketplace == "skills-dir" {
-            let src = locate_loose_skill(name, cwd, paths)?;
-            vendor_fs::copy_dir_atomic(&src, &dest)?;
-            vendor_fs::ensure_manifest(&dest, name)?;
+            vendor_loose_skill(name, cwd, paths, &dest)?;
             continue;
         }
 
-        let mkt_dir = paths.marketplace_clone_dir(marketplace);
-        let manifest_body = std::fs::read_to_string(mkt_dir.join(".claude-plugin").join("marketplace.json"))
-            .map_err(|e| anyhow::anyhow!("reading marketplace.json for '{marketplace}': {e}"))?;
-        let plugins = vendor::parse_marketplace_json(&manifest_body)?;
-        let entry = vendor::find_plugin(&plugins, name)?;
-
-        match &entry.source {
-            PluginSource::RelativePath(rel) => {
-                let src = mkt_dir.join(rel.trim_start_matches("./"));
-                vendor_fs::copy_dir_atomic(&src, &dest)?;
-            }
-            PluginSource::ExternalRepo { repo } => {
-                let repo_ref = parse_repo_ref(repo)?;
-                let ext_dir = paths.external_marketplace_dir(&repo_ref.owner, &repo_ref.repo);
-                if !ext_dir.is_dir() {
-                    git.clone(&repo_ref.clone_url(), &ext_dir)?;
-                }
-                vendor_fs::copy_dir_atomic(&ext_dir, &dest)?;
-            }
-        }
+        vendor_marketplace_entry(git, paths, marketplace, name, plugin_id, force, &dest, lock)?;
     }
     Ok(())
+}
+
+/// Vendor a personal loose skill (the `<name>@skills-dir` convention) as a copy,
+/// generating a manifest on the copy if the original lacks one.
+fn vendor_loose_skill(name: &str, cwd: &Path, paths: &Paths, dest: &Path) -> anyhow::Result<()> {
+    let src = locate_loose_skill(name, cwd, paths)?;
+    vendor_fs::copy_dir_atomic(&src, dest)?;
+    vendor_fs::ensure_manifest(dest, name)
+}
+
+/// Vendor a marketplace-listed plugin: resolve its source from the marketplace's
+/// `marketplace.json`, then copy it in from either the marketplace clone
+/// (relative path) or a separately-cloned external repo (recording/refreshing its
+/// SHA in `lock.plugins` so it's tracked the same way marketplaces are).
+fn vendor_marketplace_entry<G: GitCli>(
+    git: &G,
+    paths: &Paths,
+    marketplace: &str,
+    name: &str,
+    plugin_id: &str,
+    force: bool,
+    dest: &Path,
+    lock: &mut Lockfile,
+) -> anyhow::Result<()> {
+    let mkt_dir = paths.marketplace_clone_dir(marketplace);
+    let manifest_body = std::fs::read_to_string(mkt_dir.join(".claude-plugin").join("marketplace.json"))
+        .map_err(|e| anyhow::anyhow!("reading marketplace.json for '{marketplace}': {e}"))?;
+    let plugins = vendor::parse_marketplace_json(&manifest_body)?;
+    let entry = vendor::find_plugin(&plugins, name)?;
+
+    match &entry.source {
+        PluginSource::RelativePath(rel) => {
+            let src = mkt_dir.join(rel.trim_start_matches("./"));
+            vendor_fs::copy_dir_atomic(&src, dest)
+        }
+        PluginSource::ExternalRepo { repo } => vendor_external_repo(git, paths, repo, plugin_id, force, dest, lock),
+    }
+}
+
+/// Vendor a plugin sourced from a separate repo: clone it once, refresh it on
+/// `force` (so `update` actually moves it forward, not just re-copies stale
+/// content), then record its resolved SHA in `lock.plugins` for reproducibility.
+fn vendor_external_repo<G: GitCli>(
+    git: &G,
+    paths: &Paths,
+    repo: &str,
+    plugin_id: &str,
+    force: bool,
+    dest: &Path,
+    lock: &mut Lockfile,
+) -> anyhow::Result<()> {
+    let repo_ref = parse_repo_ref(repo)?;
+    let ext_dir = paths.external_marketplace_dir(&repo_ref.owner, &repo_ref.repo);
+    if !ext_dir.is_dir() {
+        git.clone(&repo_ref.clone_url(), &ext_dir)?;
+    } else if force {
+        git.pull(&ext_dir)?;
+    }
+    let sha = git.head_sha(&ext_dir)?;
+    lock.plugins.insert(plugin_id.to_string(), LockedMarketplace { source: repo.to_string(), sha });
+    vendor_fs::copy_dir_atomic(&ext_dir, dest)
 }
 
 /// Find a personal skill's source folder: project-local `.claude/skills/<name>`
@@ -200,13 +241,17 @@ mod tests {
 
     struct MockGit {
         cloned: RefCell<Vec<(String, PathBuf)>>,
+        pulled: RefCell<Vec<PathBuf>>,
         checkouts: RefCell<Vec<(PathBuf, String)>>,
         head: String,
         present: bool,
     }
     impl MockGit {
         fn new(head: &str) -> Self {
-            MockGit { cloned: RefCell::new(vec![]), checkouts: RefCell::new(vec![]), head: head.into(), present: true }
+            MockGit {
+                cloned: RefCell::new(vec![]), pulled: RefCell::new(vec![]),
+                checkouts: RefCell::new(vec![]), head: head.into(), present: true,
+            }
         }
     }
     impl GitCli for MockGit {
@@ -215,7 +260,10 @@ mod tests {
             fs::create_dir_all(dest)?;
             Ok(())
         }
-        fn pull(&self, _r: &Path) -> anyhow::Result<()> { Ok(()) }
+        fn pull(&self, r: &Path) -> anyhow::Result<()> {
+            self.pulled.borrow_mut().push(r.to_path_buf());
+            Ok(())
+        }
         fn head_sha(&self, _r: &Path) -> anyhow::Result<String> { Ok(self.head.clone()) }
         fn checkout(&self, r: &Path, gr: &str) -> anyhow::Result<()> {
             self.checkouts.borrow_mut().push((r.to_path_buf(), gr.to_string()));
@@ -260,14 +308,15 @@ mod tests {
 
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["foo@m"]}"#);
         let git = MockGit::new("sha1");
-        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
+        let mut lock = crate::lock::Lockfile::new("p");
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
 
         let vendored = paths.profile_vendor_dir("p").join("foo@m");
         assert!(vendored.join("SKILL.md").is_file());
     }
 
     #[test]
-    fn vendors_external_repo_plugin_by_cloning_it() {
+    fn vendors_external_repo_plugin_by_cloning_it_and_records_sha() {
         let tmp = tempfile::tempdir().unwrap();
         let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
         let mkt_dir = paths.marketplace_clone_dir("m");
@@ -279,10 +328,37 @@ mod tests {
 
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["ext@m"]}"#);
         let git = MockGit::new("sha1");
-        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
+        let mut lock = crate::lock::Lockfile::new("p");
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
 
         assert!(git.cloned.borrow().iter().any(|(url, _)| url.contains("owner/ext")));
         assert!(paths.profile_vendor_dir("p").join("ext@m").is_dir());
+        let locked = lock.plugins.get("ext@m").expect("external plugin recorded in lock");
+        assert_eq!(locked.source, "owner/ext");
+        assert_eq!(locked.sha, "sha1");
+    }
+
+    #[test]
+    fn force_revendor_pulls_external_repo_and_updates_locked_sha() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
+        let mkt_dir = paths.marketplace_clone_dir("m");
+        fs::create_dir_all(mkt_dir.join(".claude-plugin")).unwrap();
+        fs::write(
+            mkt_dir.join(".claude-plugin").join("marketplace.json"),
+            r#"{"plugins":[{"name":"ext","source":{"source":"github","repo":"owner/ext"}}]}"#,
+        ).unwrap();
+
+        let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["ext@m"]}"#);
+        let git = MockGit::new("sha1");
+        let mut lock = crate::lock::Lockfile::new("p");
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
+        assert!(git.pulled.borrow().is_empty()); // first vendor: cloned, not pulled
+
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, true, &mut lock).unwrap();
+        let ext_dir = paths.external_marketplace_dir("owner", "ext");
+        assert_eq!(git.pulled.borrow().as_slice(), &[ext_dir]); // force: refreshed, not re-cloned
+        assert_eq!(lock.plugins.get("ext@m").unwrap().sha, "sha1"); // MockGit's head_sha is fixed
     }
 
     #[test]
@@ -295,7 +371,8 @@ mod tests {
 
         let p = profile(r#"{"name":"p","plugins":["my-skill@skills-dir"]}"#);
         let git = MockGit::new("sha1");
-        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
+        let mut lock = crate::lock::Lockfile::new("p");
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
 
         let vendored = paths.profile_vendor_dir("p").join("my-skill@skills-dir");
         assert!(vendored.join("SKILL.md").is_file());
@@ -319,18 +396,19 @@ mod tests {
 
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["foo@m"]}"#);
         let git = MockGit::new("sha1");
-        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
+        let mut lock = crate::lock::Lockfile::new("p");
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
 
         // Marketplace clone changes (simulating a moved pin):
         fs::write(mkt_dir.join("foo").join("a.txt"), "v2").unwrap();
 
         // Without force: existing vendor copy is left alone (still v1).
-        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
         let vendored = paths.profile_vendor_dir("p").join("foo@m");
         assert_eq!(fs::read_to_string(vendored.join("a.txt")).unwrap(), "v1");
 
         // With force: re-vendored (now v2).
-        vendor_plugins(&git, &p, "p", tmp.path(), &paths, true).unwrap();
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, true, &mut lock).unwrap();
         assert_eq!(fs::read_to_string(vendored.join("a.txt")).unwrap(), "v2");
     }
 
@@ -340,7 +418,8 @@ mod tests {
         let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
         let p = profile(r#"{"name":"p","plugins":["missing@skills-dir"]}"#);
         let git = MockGit::new("sha1");
-        assert!(vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).is_err());
+        let mut lock = crate::lock::Lockfile::new("p");
+        assert!(vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).is_err());
     }
 
     #[test]

@@ -335,14 +335,15 @@ fn provision_pin_launch(
     let mut lock = lock::Lockfile::load(lock_file)?.unwrap_or_else(|| lock::Lockfile::new(key));
     let dir_lookup = |n: &str| paths.marketplace_clone_dir(n);
     provision::pin_marketplaces(&git::RealGit, profile, &dir_lookup, &mut lock, false)?;
+
+    spinner::spin("vendoring plugins...", "vendored", || {
+        provision::vendor_plugins(&git::RealGit, profile, key, cwd, paths, false, &mut lock)
+    })?;
+
     if let Some(parent) = lock_file.parent() {
         std::fs::create_dir_all(parent)?;
     }
     lock.save(lock_file)?;
-
-    spinner::spin("vendoring plugins...", "vendored", || {
-        provision::vendor_plugins(&git::RealGit, profile, key, cwd, paths, false)
-    })?;
 
     let args = launch::build_args(profile, key, paths, extra)?;
     launch::spawn(key, &args)
