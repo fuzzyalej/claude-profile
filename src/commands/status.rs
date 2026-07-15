@@ -1,53 +1,58 @@
-use crate::claude::{self, InstalledPlugin, Marketplace};
-use crate::profile;
-use crate::refmap::{build_refmap, RefMap};
+use crate::fs_paths::Paths;
+use crate::profile::Profile;
 
-pub fn format_status(installed: &[InstalledPlugin], mkts: &[Marketplace], refmap: &RefMap) -> String {
-    let mut out = String::from("Installed plugins:\n");
-    for p in installed {
-        let refs = refmap.plugin_refs.get(&p.id);
-        match refs {
-            Some(list) => out.push_str(&format!("  {}  ← {}\n", p.id, list.join(", "))),
-            None => out.push_str(&format!("  {}  (unreferenced)\n", p.id)),
+pub fn format_status(paths: &Paths, profiles: &[(String, Profile)]) -> anyhow::Result<String> {
+    let mut out = String::from("Vendored profiles:\n");
+    for (name, _profile) in profiles {
+        let vendor_dir = paths.profile_vendor_dir(name);
+        if !vendor_dir.is_dir() {
+            out.push_str(&format!("  {name}  (not yet provisioned)\n"));
+            continue;
+        }
+        let mut entries: Vec<String> = std::fs::read_dir(&vendor_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        entries.sort();
+        out.push_str(&format!("  {name}  ({} vendored)\n", entries.len()));
+        for id in entries {
+            out.push_str(&format!("    - {id}\n"));
         }
     }
-    out.push_str("Marketplaces:\n");
-    for m in mkts {
-        match refmap.marketplace_refs.get(&m.name) {
-            Some(list) => out.push_str(&format!("  {}  ← {}\n", m.name, list.join(", "))),
-            None => out.push_str(&format!("  {}  (unreferenced)\n", m.name)),
-        }
-    }
-    out
+    Ok(out)
 }
 
-pub fn run<C: claude::ClaudeCli>(cli: &C, profiles: &[(String, profile::Profile)]) -> anyhow::Result<()> {
-    let installed = cli.list_plugins()?;
-    let mkts = cli.list_marketplaces()?;
-    let refmap = build_refmap(profiles);
-    print!("{}", format_status(&installed, &mkts, &refmap));
+pub fn run(paths: &Paths, profiles: &[(String, Profile)]) -> anyhow::Result<()> {
+    print!("{}", format_status(paths, profiles)?);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude::{InstalledPlugin, Marketplace};
-    use crate::refmap::build_refmap;
+    use std::fs;
 
-    fn plug(id: &str) -> InstalledPlugin {
-        InstalledPlugin { id: id.into(), enabled: false, scope: "user".into(), mcp_servers: serde_json::json!({}) }
+    #[test]
+    fn lists_vendored_entries_per_profile() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        fs::create_dir_all(paths.profile_vendor_dir("p").join("foo@m")).unwrap();
+        fs::create_dir_all(paths.profile_vendor_dir("p").join("bar@m")).unwrap();
+
+        let profiles = vec![("p".to_string(), Profile::from_json_str(r#"{"name":"p"}"#).unwrap())];
+        let s = format_status(&paths, &profiles).unwrap();
+        assert!(s.contains("p  (2 vendored)"));
+        assert!(s.contains("foo@m"));
+        assert!(s.contains("bar@m"));
     }
 
     #[test]
-    fn shows_referencing_profiles_and_unreferenced() {
-        let profiles = vec![("a".to_string(),
-            crate::profile::Profile::from_json_str(r#"{"name":"a","plugins":["used@m"]}"#).unwrap())];
-        let rm = build_refmap(&profiles);
-        let s = format_status(&[plug("used@m"), plug("stale@m")], &[Marketplace { name: "m".into() }], &rm);
-        assert!(s.contains("used@m"));
-        assert!(s.contains("a"));            // referencing profile listed
-        assert!(s.contains("stale@m"));
-        assert!(s.contains("unreferenced")); // stale plugin flagged
+    fn reports_not_yet_provisioned_when_no_vendor_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let profiles = vec![("p".to_string(), Profile::from_json_str(r#"{"name":"p"}"#).unwrap())];
+        let s = format_status(&paths, &profiles).unwrap();
+        assert!(s.contains("p  (not yet provisioned)"));
     }
 }
