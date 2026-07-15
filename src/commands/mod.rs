@@ -1,9 +1,7 @@
-pub mod disable;
 pub mod find;
 pub mod list;
 pub mod show;
 pub mod status;
-pub mod gc;
 pub mod remove;
 pub mod update;
 pub mod new;
