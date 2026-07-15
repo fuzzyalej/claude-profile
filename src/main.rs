@@ -19,6 +19,7 @@ mod refmap;
 mod resolve;
 mod spinner;
 mod vendor;
+mod vendor_fs;
 
 #[derive(Parser)]
 #[command(name = "claude-profile", version, about)]
