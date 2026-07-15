@@ -17,6 +17,7 @@ Commands:
   test            Run `claude plugin eval` against a plugin/skill target
   find            Search a local index of plugins across marketplaces
   self-uninstall  Remove the claude-profile binary (and optionally profile data)
+  completions     Print or install a shell completion script
   help            Print this message or the help of the given subcommand(s)
 ```
 
@@ -278,3 +279,41 @@ Removes the `claude-profile` binary itself.
 
 See the [top-level README](../README.md#uninstalling) for the full uninstall walkthrough
 (including the manual, no-binary-needed path).
+
+## `completions`
+
+```
+Usage: claude-profile completions [OPTIONS] <SHELL>
+
+Arguments:
+  <SHELL>  [possible values: bash, zsh, fish, powershell]
+
+Options:
+      --install  Write the script to the standard completion path (and wire it up) instead
+                 of printing it to stdout
+```
+
+Prints (or installs) tab-completion for subcommands and, dynamically, for **installed profile
+names** — so `claude-profile <TAB>` and `claude-profile show <TAB>` / `remove <TAB>` suggest
+whatever `list` would currently show. Profile names are looked up live via the hidden
+`profile-names` subcommand (one name per line), so completions always reflect the current
+`~/.claude-profiles/` contents — nothing to regenerate after adding or removing a profile.
+
+Without `--install`, the script is printed to stdout so you can pipe or source it yourself, e.g.:
+
+```sh
+source <(claude-profile completions zsh)   # try it for the current shell session only
+```
+
+With `--install`, the script is written to the standard location for that shell and, where the
+shell needs it, sourced from its startup file (the edit is idempotent — reinstalling never
+duplicates the line):
+
+| Shell        | Script location                                             | Startup file wired up            |
+|--------------|--------------------------------------------------------------|-----------------------------------|
+| `bash`       | `~/.claude-profiles/completions/claude-profile.bash`         | `~/.bashrc`                       |
+| `zsh`        | `~/.claude-profiles/completions/claude-profile.zsh`           | `~/.zshrc`                        |
+| `fish`       | `~/.config/fish/completions/claude-profile.fish`              | none — fish autoloads this dir    |
+| `powershell` | `~/.claude-profiles/completions/claude-profile.ps1`           | `Documents/PowerShell/Microsoft.PowerShell_profile.ps1` |
+
+Restart the shell (or source the startup file / run `. $PROFILE` in PowerShell) to pick it up.

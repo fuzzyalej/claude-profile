@@ -226,6 +226,16 @@ cargo install claude-profile
 
 The generator config lives in `Cargo.toml` under `[workspace.metadata.dist]`.
 
+### Shell completion
+
+```sh
+claude-profile completions zsh --install   # bash, fish, powershell also supported
+```
+
+Tab-completes subcommands and installed profile names (`claude-profile <TAB>`,
+`claude-profile show <TAB>`); see [`completions`](docs/commands.md#completions) for install
+paths per shell and OS.
+
 ## Uninstalling
 
 The built-in command:

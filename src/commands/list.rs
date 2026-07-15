@@ -29,6 +29,15 @@ pub fn run(paths: &Paths, cwd: &Path, env_dir: Option<&Path>, bundled_dir: &Path
     Ok(())
 }
 
+/// Prints just the profile names, one per line — consumed by shell completion scripts
+/// (see `commands::completions`) rather than by humans, so no source labels.
+pub fn run_names(paths: &Paths, cwd: &Path, env_dir: Option<&Path>, bundled_dir: &Path) -> anyhow::Result<()> {
+    for (name, _path, _source) in list_available(paths, cwd, env_dir, bundled_dir) {
+        println!("{name}");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
