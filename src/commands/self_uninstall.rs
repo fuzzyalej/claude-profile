@@ -25,19 +25,12 @@ pub fn apply(plan: &UninstallPlan) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn run(paths: &Paths, purge: bool, referenced_only_by_profiles: &[String]) -> anyhow::Result<()> {
+pub fn run(paths: &Paths, purge: bool) -> anyhow::Result<()> {
     let current = std::env::current_exe()?;
     let pl = plan(current, paths, purge);
     println!("removing binary: {}", pl.binary.display());
     if let Some(dir) = &pl.purge_dir {
-        println!("purging profile data: {}", dir.display());
-    }
-    if !referenced_only_by_profiles.is_empty() {
-        println!("note: these plugins were provisioned into ~/.claude and are NOT removed");
-        println!("      (they belong to Claude Code). Run `claude-profile gc` first if you want them gone:");
-        for id in referenced_only_by_profiles {
-            println!("  - {id}");
-        }
+        println!("purging profile data (including all vendored plugins/skills): {}", dir.display());
     }
     apply(&pl)
 }
