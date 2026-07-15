@@ -116,7 +116,7 @@ pub fn provision<G: GitCli>(
     git: &G,
     profile: &Profile,
     profile_key: &str,
-    cwd: &Path,
+    _cwd: &Path,
     paths: &Paths,
     assume_yes: bool,
 ) -> anyhow::Result<()> {

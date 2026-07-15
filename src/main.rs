@@ -1,11 +1,8 @@
 use clap::{Parser, Subcommand};
-use claude::ClaudeCli;
 use std::path::PathBuf;
 
-mod claude;
 mod combine;
 mod commands;
-mod enablement;
 mod extends;
 mod fs_paths;
 mod git;
@@ -15,7 +12,6 @@ mod lock;
 mod pack;
 mod profile;
 mod provision;
-mod refmap;
 mod resolve;
 mod spinner;
 mod vendor;
@@ -54,27 +50,8 @@ enum Command {
     },
     /// Show installed plugins/marketplaces and which profiles reference each.
     Status,
-    /// Disable (in global settings) a profile's plugins that no other profile uses,
-    /// so plain `claude` sessions don't load them. They stay installed; launching the
-    /// profile re-enables them for that session.
-    Disable {
-        profile: String,
-        /// Report what would be disabled without writing settings.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Uninstall plugins/marketplaces no profile references.
-    Gc {
-        #[arg(long)]
-        dry_run: bool,
-    },
     /// Delete a personal profile or cloned pack.
-    Remove {
-        target: String,
-        /// Also gc plugins/marketplaces left unreferenced afterward.
-        #[arg(long)]
-        prune: bool,
-    },
+    Remove { target: String },
     /// Scaffold a new profile in ~/.claude-profiles/.
     New { name: String },
     /// Run `claude plugin eval` against a plugin/skill target.
@@ -108,12 +85,12 @@ enum Command {
     },
 }
 
-type ProfilesForRefmap = (Vec<(String, profile::Profile)>, Vec<(PathBuf, String)>);
+type LoadedProfiles = (Vec<(String, profile::Profile)>, Vec<(PathBuf, String)>);
 
-fn profiles_for_refmap(
+fn load_all_profiles(
     paths: &fs_paths::Paths, cwd: &std::path::Path,
     env: Option<&std::path::Path>, bundled: &std::path::Path,
-) -> ProfilesForRefmap {
+) -> LoadedProfiles {
     let mut out = Vec::new();
     let mut failed = Vec::new();
     for (name, path, _src) in resolve::list_available(paths, cwd, env, bundled) {
@@ -172,89 +149,25 @@ fn run() -> anyhow::Result<i32> {
             commands::find::run(&paths, &query, sync, refresh_seeds, json, limit, marketplace.as_deref())
         }
         Some(Command::SelfUninstall { purge }) => {
-            let (profiles, _failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &bundled);
-            let refmap = refmap::build_refmap(&profiles);
-            let referenced: Vec<String> = refmap.plugin_refs.keys().cloned().collect();
-            commands::self_uninstall::run(&paths, purge, &referenced)?;
-            Ok(0)
-        }
-        Some(Command::Disable { profile, dry_run }) => {
-            handle_disable(&profile, dry_run, &paths, &cwd, env.as_deref(), &bundled)?;
+            commands::self_uninstall::run(&paths, purge)?;
             Ok(0)
         }
         Some(Command::Status) => {
-            let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &bundled);
+            let (profiles, failed) = load_all_profiles(&paths, &cwd, env.as_deref(), &bundled);
             for (path, err) in &failed {
                 eprintln!("warning: could not parse profile {}: {err}", path.display());
             }
-            commands::status::run(&claude::RealClaude::new(), &profiles)?;
+            commands::status::run(&paths, &profiles)?;
             Ok(0)
         }
-        Some(Command::Gc { dry_run }) => {
-            let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &bundled);
-            if !failed.is_empty() {
-                for (path, err) in &failed {
-                    eprintln!("error: could not parse profile {}: {err}", path.display());
-                }
-                anyhow::bail!(
-                    "refusing to gc: {} profile(s) could not be parsed; fix or remove them first (a broken profile hides the plugins it references, which gc would then delete)",
-                    failed.len()
-                );
-            }
-            let report = commands::gc::run(&claude::RealClaude::new(), &profiles, dry_run)?;
-            let verb = if dry_run { "would remove" } else { "removed" };
-            for id in &report.removed_plugins { println!("{verb} plugin {id}"); }
-            for m in &report.removed_marketplaces { println!("{verb} marketplace {m}"); }
-            if report.removed_plugins.is_empty() && report.removed_marketplaces.is_empty() {
-                println!("nothing to remove");
-            }
-            Ok(0)
-        }
-        Some(Command::Remove { target, prune }) => {
+        Some(Command::Remove { target }) => {
             let plan = commands::remove::remove_target(&target, &paths, &cwd, env.as_deref(), &bundled)?;
             commands::remove::apply(&plan)?;
             println!("removed {target}");
-            if prune {
-                let (profiles, failed) = profiles_for_refmap(&paths, &cwd, env.as_deref(), &bundled);
-                if !failed.is_empty() {
-                    for (path, err) in &failed {
-                        eprintln!("error: could not parse profile {}: {err}", path.display());
-                    }
-                    anyhow::bail!(
-                        "refusing to gc: {} profile(s) could not be parsed; fix or remove them first (a broken profile hides the plugins it references, which gc would then delete)",
-                        failed.len()
-                    );
-                }
-                let report = commands::gc::run(&claude::RealClaude::new(), &profiles, false)?;
-                for id in &report.removed_plugins { println!("pruned plugin {id}"); }
-                for m in &report.removed_marketplaces { println!("pruned marketplace {m}"); }
-            }
             Ok(0)
         }
         None => handle_launch(&cli.profiles, cli.yes, &cli.extra, &paths, &cwd, env.as_deref(), &bundled),
     }
-}
-
-fn handle_disable(
-    profile: &str,
-    dry_run: bool,
-    paths: &fs_paths::Paths,
-    cwd: &std::path::Path,
-    env: Option<&std::path::Path>,
-    bundled: &std::path::Path,
-) -> anyhow::Result<()> {
-    let (profiles, failed) = profiles_for_refmap(paths, cwd, env, bundled);
-    for (path, err) in &failed {
-        eprintln!("warning: could not parse profile {}: {err}", path.display());
-    }
-    // Expand `extends` so inherited plugins count toward the shared set.
-    let expanded: Vec<(String, profile::Profile)> = profiles
-        .iter()
-        .filter_map(|(name, p)| {
-            resolve_extends_or_warn(name, p, paths, cwd, env, bundled).map(|rp| (name.clone(), rp))
-        })
-        .collect();
-    commands::disable::run(paths, &expanded, profile, dry_run)
 }
 
 fn handle_update(
@@ -266,13 +179,11 @@ fn handle_update(
 ) -> anyhow::Result<()> {
     let updated = pack::update_all_packs(&git::RealGit, paths)?;
     for name in &updated { println!("updated pack {name}"); }
-    let (profiles, failed) = profiles_for_refmap(paths, cwd, env, bundled);
+    let (profiles, failed) = load_all_profiles(paths, cwd, env, bundled);
     for (path, err) in &failed {
         eprintln!("warning: skipping unparseable profile {}: {err}", path.display());
     }
-    let cli = claude::RealClaude::new();
-    let mkt_dirs = installed_mkts_install_dirs(&cli)?;
-    let dir_lookup = |n: &str| mkt_dirs.get(n).cloned().unwrap_or_default();
+    let dir_lookup = |n: &str| paths.marketplace_clone_dir(n);
     if frozen {
         let mut triples = Vec::new();
         for (name, profile) in &profiles {
@@ -287,17 +198,11 @@ fn handle_update(
     } else {
         for (name, profile) in &profiles {
             let Some(profile) = resolve_extends_or_warn(name, profile, paths, cwd, env, bundled) else { continue };
-            let missing = profile.marketplaces.keys().find(|mkt| !mkt_dirs.contains_key(mkt.as_str()));
-            if let Some(mkt) = missing {
-                eprintln!(
-                    "skipping '{name}': marketplace '{mkt}' not installed (launch the profile once to provision it)"
-                );
-                continue;
-            }
+            provision::ensure_marketplace_clones(&git::RealGit, &profile, paths)?;
             let resolved = resolve::resolve(name, paths, cwd, env, bundled)?;
             let lp = lock::lock_path(name, &resolved.path, &resolved.source, paths);
             let mut lf = lock::Lockfile::load(&lp)?.unwrap_or_else(|| lock::Lockfile::new(name));
-            commands::update::reresolve_profile(&git::RealGit, &profile, &dir_lookup, &mut lf)?;
+            commands::update::reresolve_profile(&git::RealGit, &profile, name, cwd, paths, &dir_lookup, &mut lf)?;
             lf.save(&lp)?;
         }
     }
@@ -346,7 +251,7 @@ fn handle_launch(
         [name] => {
             let one = resolve_one(name, paths, cwd, env, bundled)?;
             let lock_file = lock::lock_path(&one.key, &one.path, &one.source, paths);
-            provision_pin_launch(&one.profile, &one.key, &lock_file, assume_yes, extra, paths)
+            provision_pin_launch(&one.profile, &one.key, &lock_file, assume_yes, extra, cwd, paths)
         }
         _ => launch_combined(names, assume_yes, extra, paths, cwd, env, bundled),
     }
@@ -402,87 +307,39 @@ fn launch_combined(
     let combined = combine::combine_profiles(&resolved)?;
     let key = combined.name.clone();
     let lock_file = paths.locks_dir().join(format!("{key}.lock"));
-    provision_pin_launch(&combined, &key, &lock_file, assume_yes, extra, paths)
+    provision_pin_launch(&combined, &key, &lock_file, assume_yes, extra, cwd, paths)
 }
 
-fn print_enablement_warnings(en: &enablement::Enablement) {
-    if !en.leaking_skills.is_empty() {
-        eprintln!("WARNING: these manifest-less skills load in EVERY session and cannot be gated:");
-        for s in &en.leaking_skills {
-            eprintln!("  - {s}  (add .claude-plugin/plugin.json to make it gateable)");
-        }
-    }
-    if !en.suppressed_mcp.is_empty() {
-        eprintln!("WARNING: --strict-mcp-config will drop MCP servers bundled by these plugins;");
-        eprintln!("         re-declare them in the profile's mcpServers to keep them:");
-        for id in &en.suppressed_mcp {
-            eprintln!("  - {id}");
-        }
-    }
-}
-
-/// Shared launch tail: provision the profile, pin its marketplaces into `lock_file`, warn
-/// about leaking skills / suppressed MCP, then spawn `claude` for the session.
+/// Shared launch tail: provision the profile (cloning marketplaces / prompting as needed),
+/// pin its marketplaces into `lock_file`, vendor plugins against the pinned checkout, then
+/// spawn `claude` for the session with the vendored plugin dirs.
 fn provision_pin_launch(
     profile: &profile::Profile,
     key: &str,
     lock_file: &std::path::Path,
     assume_yes: bool,
     extra: &[String],
+    cwd: &std::path::Path,
     paths: &fs_paths::Paths,
 ) -> anyhow::Result<i32> {
-    let cli = claude::RealClaude::new();
-    provision::provision(&cli, profile, assume_yes)?;
+    spinner::spin("provisioning marketplaces...", "provisioned", || {
+        provision::provision(&git::RealGit, profile, key, cwd, paths, assume_yes)
+    })?;
 
     let mut lock = lock::Lockfile::load(lock_file)?.unwrap_or_else(|| lock::Lockfile::new(key));
-    let installed_mkts = cli.list_marketplaces()?;
-    let mkt_by_name = installed_mkts_install_dirs(&cli)?;
-    ensure_marketplaces_installed(profile, &mkt_by_name)?;
-    let dir_lookup = |n: &str| mkt_by_name.get(n).cloned().unwrap_or_default();
-    provision::pin_marketplaces(&git::RealGit, profile, &installed_mkts, &dir_lookup, &mut lock, false)?;
+    let dir_lookup = |n: &str| paths.marketplace_clone_dir(n);
+    provision::pin_marketplaces(&git::RealGit, profile, &dir_lookup, &mut lock, false)?;
     if let Some(parent) = lock_file.parent() {
         std::fs::create_dir_all(parent)?;
     }
     lock.save(lock_file)?;
 
-    let installed = cli.list_plugins()?;
-    let skills = enablement::scan_skills_dir(&paths.claude_skills_dir());
-    let en = enablement::build(profile, &installed, &skills);
-    print_enablement_warnings(&en);
+    spinner::spin("vendoring plugins...", "vendored", || {
+        provision::vendor_plugins(&git::RealGit, profile, key, cwd, paths, false)
+    })?;
 
-    let args = launch::build_args(profile, &en, extra);
+    let args = launch::build_args(profile, key, paths, extra)?;
     launch::spawn(key, &args)
-}
-
-/// Fail fast with a clear error if a profile references a marketplace that
-/// isn't in the installed-marketplace map, instead of letting `pin_marketplaces`
-/// run `git checkout` against an empty directory and surface an opaque git error.
-fn ensure_marketplaces_installed(
-    profile: &profile::Profile,
-    mkt_by_name: &std::collections::BTreeMap<String, std::path::PathBuf>,
-) -> anyhow::Result<()> {
-    for name in profile.marketplaces.keys() {
-        if !mkt_by_name.contains_key(name) {
-            anyhow::bail!("marketplace '{name}' is not installed (provisioning may have failed); cannot pin");
-        }
-    }
-    Ok(())
-}
-
-fn installed_mkts_install_dirs(cli: &claude::RealClaude) -> anyhow::Result<std::collections::BTreeMap<String, std::path::PathBuf>> {
-    // marketplace list --json includes installLocation; parse it here.
-    let raw = cli.marketplace_list_raw()?;
-    let v: serde_json::Value = serde_json::from_str(&raw)?;
-    let mut map = std::collections::BTreeMap::new();
-    if let Some(arr) = v.as_array() {
-        for m in arr {
-            if let (Some(name), Some(loc)) = (m.get("name").and_then(|x| x.as_str()),
-                                              m.get("installLocation").and_then(|x| x.as_str())) {
-                map.insert(name.to_string(), std::path::PathBuf::from(loc));
-            }
-        }
-    }
-    Ok(map)
 }
 
 fn main() {
