@@ -1,8 +1,9 @@
 # How it works
 
 `claude-profile` is a launcher, not a plugin: what loads into a Claude Code session is decided
-at `claude` startup from settings, so the control point has to sit outside `claude` itself.
-This page condenses the parts of the internal design that matter for using the tool.
+at `claude` startup from the `--plugin-dir` flags it's invoked with, so the control point has
+to sit outside `claude` itself. This page condenses the parts of the internal design that
+matter for using the tool.
 
 ## The launch flow
 
@@ -10,34 +11,42 @@ Running `claude-profile <profile> [-- extra claude args]` does, in order:
 
 1. **Resolve.** Find `<profile>.json` via the search path described in
    [profiles.md](profiles.md#where-profiles-live).
-2. **Provision.** Diff the profile's `marketplaces`/`plugins` against what's currently
-   installed. For anything missing, show a confirmation prompt naming the source and pinned
-   ref before installing (`--yes` skips this prompt). Nothing new is installed silently.
-3. **Build the `enabledPlugins` override.** Enumerate every installed plugin plus any
-   manifest-bearing loose skills, and emit an explicit `true`/`false` for every single one:
-   `true` for the profile's own entries, `false` for everything else. This "explicit false
-   everywhere" approach means the override can't be defeated by Claude Code's own settings
-   merge behavior: there's no ambient state left unset that Claude Code could later enable.
-4. **Pin marketplaces.** Resolve each marketplace to its locked commit SHA (writing the lock
-   on first use; see [profiles.md](profiles.md#version-pinning-and-the-lockfile)).
-5. **Spawn** `claude --settings <override> --strict-mcp-config --mcp-config <profile.mcpServers>
-   [--plugin-dir ...] [--bare]`, forwarding anything after `--` and proxying the child's exit
+2. **Vendor.** For each marketplace/plugin/skill the profile references that
+   isn't already vendored for this profile, show a confirmation prompt
+   naming what will be cloned/copied (`--yes` skips this prompt). Nothing
+   new is fetched silently, and nothing is ever written to your real
+   `~/.claude`.
+3. **Pin marketplaces.** Resolve each marketplace clone to its locked commit
+   SHA (writing the lock on first use; see
+   [profiles.md](profiles.md#version-pinning-and-the-lockfile)), then copy
+   each referenced plugin/skill out of that pinned checkout into
+   `~/.claude-profiles/store/<profile>/vendor/`.
+4. **Spawn** `claude --strict-mcp-config --mcp-config <profile.mcpServers>
+   --plugin-dir <each vendored entry> [--plugin-dir ...profile.pluginDirs]
+   [--bare]`, forwarding anything after `--` and proxying the child's exit
    code back to the caller.
 
-Nothing is written to your real `~/.claude/settings.json` beyond the ordinary installs that
-provisioning performs; the enablement override is passed in per-launch via `--settings`.
+Nothing is ever written to your real `~/.claude/settings.json`, `~/.claude/plugins`,
+or `~/.claude/skills`. Every plugin and skill a profile uses lives under
+`~/.claude-profiles/store/<profile>/vendor/`, a directory claude-profile fully
+owns.
 
-## Isolation is runtime gating, not install isolation
+## Isolation is install isolation
 
-Provisioning installs plugins into the shared user scope (the same place `claude plugin
-install` would put them normally), so `~/.claude` accumulates the union of everything any
-profile has ever used. Disabled plugins cost zero context at launch, and a shared install
-avoids re-downloading the same plugin for every profile that uses it.
+Unlike gating what's *enabled* in a shared install, each profile is a fully
+self-contained package: `~/.claude-profiles/store/<profile>/vendor/` holds
+copies of exactly that profile's plugins and skills, vendored out of a
+pinned marketplace checkout. Plain `claude`, run without `claude-profile`,
+never sees any of it — there is nothing registered anywhere `claude` looks
+by default. `claude-profile status` lists what's vendored per profile, and
+`claude-profile remove <profile>` deletes a profile's vendor tree along with
+its profile file — a real uninstall, not just a disable.
 
-A profile guarantees only that, at launch, nothing but its own entries is enabled for that
-session. It is not an on-disk sandbox: other profiles' plugins stay installed but unused. Use
-`claude-profile status` to see what's installed and which profiles reference it, and
-`claude-profile gc` to uninstall anything no profile references anymore.
+Marketplace *clones* (the repos claude-profile copies plugin code out of)
+are cached once per marketplace name under `~/.claude-profiles/store/marketplaces/`
+and reused across profiles that reference the same marketplace, to avoid
+re-cloning — but each profile's *vendored copy* of a plugin is independent,
+so profiles never share mutable state.
 
 ## What is NOT gated
 
@@ -45,15 +54,18 @@ Two things load in every Claude Code session regardless of which profile launche
 profile cannot isolate them:
 
 - **Global and project `CLAUDE.md`, plus auto-loaded memory.** These are read by the `claude`
-  client itself as part of its normal startup, independent of the plugin/skill enablement a
-  profile controls. The only thing that suppresses them is Claude Code's `--bare` mode, which
+  client itself as part of its normal startup, independent of which vendored plugin/skill
+  directory a profile loads. The only thing that suppresses them is Claude Code's `--bare` mode, which
   requires `ANTHROPIC_API_KEY` authentication and drops OAuth/keychain login, which changes
   how most users authenticate. Set `"bare": true` on a profile if you authenticate with an API
   key and want this stronger isolation.
-- **Manifest-less loose skills.** A bare `SKILL.md` with no `.claude-plugin/plugin.json`
-  manifest under `~/.claude/skills` or `.claude/skills` auto-loads in every session and can't
-  be gated by `enabledPlugins`. `claude-profile` warns loudly at launch about any such skills
-  it detects, so you know they loaded anyway.
+- **Manifest-less loose skills.** A bare `SKILL.md` with no
+  `.claude-plugin/plugin.json` manifest under `~/.claude/skills` or
+  `.claude/skills` still can't be *referenced by Claude Code's own*
+  enablement system — but claude-profile no longer needs that system.
+  Reference it in a profile's `plugins` list as `<name>@skills-dir` and
+  claude-profile vendors a **copy** of it, generating a minimal manifest on
+  that copy if one is missing. The original skill folder is never modified.
 
 See the top-level README's ["Important limitation" section](../README.md#important-limitation-your-global-claudemd-and-memory-are-not-gated)
 for more on why this isn't "fixed" and what to do about it.

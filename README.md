@@ -1,8 +1,8 @@
 # claude-profile
 
 **Give every task its own Claude Code.** Launch `claude` with *only* the plugins, skills,
-marketplaces, and MCP servers a profile defines — everything else on your machine stays
-disabled for that session.
+marketplaces, and MCP servers a profile defines — everything else on your machine is never
+loaded for that session.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
@@ -15,7 +15,8 @@ claude-profile fuzzyalej/security  # install a shared profile repo, then launch 
 ```
 
 A standalone cross-platform CLI (Rust; macOS / Linux / Windows) — **not** a plugin, and it
-never rewrites your real `~/.claude/settings.json` beyond ordinary plugin installs.
+never writes to your real `~/.claude` at all: every plugin/skill a profile uses is vendored
+into that profile's own directory instead.
 
 ---
 
@@ -36,10 +37,10 @@ terminal with a different profile and the two don't interfere.
 - 🪟 **Many at once** — different terminals run different profiles simultaneously.
 - 📦 **Shareable** — publish a profile repo; teammates `install` it and launch by name. Backed
   by a lockfile so it resolves to the *same* plugin code across machines and over time.
-- 🧹 **Non-destructive** — profiles gate what's *enabled* at launch; your global settings and
-  installs are left intact. `status` and `gc` keep the shared install set tidy.
-- 🔍 **Honest** — it tells you exactly what it can and can't isolate (see the limitation below),
-  and warns about anything that would leak through.
+- 🧹 **Non-destructive** — every plugin/skill a profile uses is vendored into that profile's own
+  directory; your real `~/.claude` is never written to. `remove` deletes a profile's vendor tree
+  outright — a real uninstall, not a disable.
+- 🔍 **Honest** — it tells you exactly what it can and can't isolate (see the limitation below).
 
 ## Quick start
 
@@ -48,9 +49,8 @@ claude-profile rust-developer          # launch a session with only this profile
 claude-profile rust-dev frontend       # launch a combined session (union of several profiles)
 claude-profile fuzzyalej/rust-profile  # install a profile repo if needed, then launch its default
 claude-profile list                    # profiles and where they come from
-claude-profile status                  # what's installed globally and which profiles use it
-claude-profile gc --dry-run            # preview cleanup of installs no profile references
-claude-profile disable rust-developer  # stop its unshared plugins loading in plain claude
+claude-profile status                  # what's vendored per profile
+claude-profile remove rust-developer   # delete a profile and its vendored plugins/skills
 claude-profile find python             # discover plugins to add to a profile
 ```
 
@@ -67,15 +67,17 @@ full flag reference.
 
 ## What a profile controls
 
-A profile is a small JSON file. When you launch it, `claude-profile` enables exactly its
-entries and explicitly disables everything else:
+A profile is a small JSON file. When you launch it, `claude-profile` vendors exactly its
+entries into that profile's own directory and loads only those — nothing else on the machine
+is registered:
 
-- **Plugins** — every other installed plugin is set to `false` for the session.
-- **Loose skills** (`~/.claude/skills`, `.claude/skills`) — gated the same way as plugins **if** the
-  skill folder has a `.claude-plugin/plugin.json` manifest (it loads as `name@skills-dir`). A bare
-  `SKILL.md` with no manifest auto-loads in every session and **cannot** be gated; `claude-profile`
-  warns you about any such skills that will leak through. Add a manifest to make a personal skill
-  containable.
+- **Plugins and skills** — every plugin/skill a profile references is vendored (cloned/copied)
+  into that profile's own directory under `~/.claude-profiles/store/`, and loaded for the
+  session via `--plugin-dir`. Nothing is installed or enabled globally; a plain `claude` session
+  never sees any of it.
+- **Loose skills** (`~/.claude/skills`, `.claude/skills`) — reference one as `<name>@skills-dir`
+  in a profile's `plugins` list and claude-profile vendors a copy, generating a manifest on that
+  copy if the original lacks one. The original folder is never touched.
 - **MCP servers** — launched with `--strict-mcp-config`, so only the profile's servers load;
   your user/project MCP servers never appear. Empty means none.
 
@@ -134,7 +136,7 @@ This is the one thing a profile **cannot** isolate, and you should understand it
 relying on the tool for a "clean" environment.
 
 Claude Code loads instruction and memory context from sources that are decided by the
-client itself, not by the plugin/skill enablement machinery a profile controls:
+client itself, not by the vendored plugin/skill directory a profile loads:
 
 - **`~/.claude/CLAUDE.md`** (your global instructions) — and project/local `CLAUDE.md` files
 - **auto-loaded memory** (`~/.claude/.../memory`, `MEMORY.md`, etc.)
@@ -165,58 +167,33 @@ If you want a genuinely minimal profile without giving up OAuth, keep your globa
 way the instructions travel with the profiles that want them, instead of loading
 everywhere.
 
-## Isolation is runtime gating, not install isolation
+## Package-lifecycle model
 
-Provisioning installs plugins into the shared user scope, so `~/.claude` accumulates the
-union of everything any profile has used. Disabled plugins cost zero context, and one shared
-install avoids re-downloading. A profile guarantees only that *at launch* nothing but its
-entries is enabled; it is not an on-disk sandbox. Use `claude-profile status` /
-`claude-profile gc` to keep the shared install set tidy.
-
-## Managing profiles and installs
-
-Four commands cover the lifecycle after a profile exists. They act at different levels — from
-"just stop loading it" to "delete it entirely":
+Each profile is a fully isolated package: `install` = vendor into
+`~/.claude-profiles/store/<profile>/`, `launch` = point `claude` at that
+directory via `--plugin-dir`, `remove` = delete it. There's no shared global
+install to reconcile, disable, or garbage-collect.
 
 ```sh
-claude-profile disable <profile>            # stop this profile's plugins loading in plain claude
-claude-profile disable <profile> --dry-run  # preview which plugins that would touch
-claude-profile gc                           # uninstall plugins/marketplaces NO profile references
-claude-profile remove <profile>             # delete a personal profile's JSON + lockfile
+claude-profile status                       # what's vendored per profile
+claude-profile remove <profile>              # delete a personal profile's JSON, lock, and vendor tree
 claude-profile remove <owner/repo>          # delete a cloned pack directory
-claude-profile remove <profile> --prune     # delete the profile, then gc what's now unreferenced
 ```
 
-### `disable` — save tokens between profile sessions
+`remove` deletes a profile's **data and its vendored plugin/skill copies** in one step — a real
+uninstall, not a disable:
 
-Every plugin you've ever provisioned stays enabled in `~/.claude/settings.json`, so a plain
-`claude` session (no profile) loads *all* of them and pays their context cost. `disable <profile>`
-sets `enabledPlugins["<id>"] = false` for the plugins that profile uses **and no other profile
-uses** — the ones clearly specific to it. Plugins shared with another profile are left alone, so
-disabling one profile never breaks another.
-
-Nothing is uninstalled: launching `claude-profile <profile>` re-enables its plugins for that
-session (the launch passes its own settings, overriding the global disabled state). So the loop
-is: `disable` the heavy profiles you're not actively using, then just launch them when you need
-them. Run with `--dry-run` first to see exactly what changes.
-
-### `remove` — delete profile data
-
-`remove` deletes profile **data**, never installed plugin code:
-
-- **`remove <name>`** (a bare name, no `/`): deletes that personal or project profile's JSON file
-  and its `<name>.lock` file, if present. The plugins it referenced stay installed — other
-  profiles may still use them.
+- **`remove <name>`** (a bare name, no `/`): deletes that personal or project profile's JSON
+  file, its `<name>.lock` file if present, and its entire
+  `~/.claude-profiles/store/<name>/vendor/` directory.
 - **`remove <owner/repo>`**: deletes the whole cloned pack directory under
   `~/.claude-profiles/packs/owner--repo/`.
-- **`--prune`**: after deleting, runs `gc` so any plugin/marketplace left referenced by no
-  remaining profile is uninstalled too. This is the "remove it and clean up after it" option.
 - It refuses to remove the engine's bundled `profiles/` (e.g. `rust-developer`) — those
   ship with the binary and aren't your data.
 
-The difference at a glance: **`disable`** keeps the profile and its installs, just quiets them
-globally; **`remove`** deletes the profile file; **`remove --prune`** / **`gc`** additionally
-uninstall the underlying plugin code.
+Because each profile's vendored plugins/skills are its own private copies, removing one profile
+never affects another's, even if both reference the same `plugin@marketplace` id — there's
+nothing left to prune or garbage-collect afterward.
 
 ## Installing
 
@@ -256,21 +233,22 @@ The built-in command:
 ```sh
 claude-profile self-uninstall           # removes the claude-profile binary
 claude-profile self-uninstall --purge   # also removes ~/.claude-profiles (personal
-                                         # profiles, cloned packs, and all locks)
+                                         # profiles, cloned packs, locks, and every
+                                         # profile's vendored plugins/skills)
 ```
 
 Or do it manually:
 
 - Remove the binary you installed: delete it from `PATH`, or `cargo uninstall claude-profile`
   if you installed it with `cargo install`.
-- Optionally remove profile data (personal profiles, packs, locks):
+- Optionally remove profile data (personal profiles, packs, locks, and every profile's
+  vendored plugins/skills):
   ```sh
   rm -rf ~/.claude-profiles
   ```
 
-Either way, **this does NOT remove plugins provisioned into `~/.claude`**. Run
-`claude-profile gc` first if you want those gone; they belong to Claude Code, not
-`claude-profile`.
+Either way, this never touches `~/.claude` — `claude-profile` never wrote anything there in
+the first place.
 
 ## Learn more
 
