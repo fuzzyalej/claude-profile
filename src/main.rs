@@ -42,11 +42,11 @@ enum Command {
     Show { target: String },
     /// Install or refresh a profile repo (owner/repo[#ref]) without launching.
     Install { spec: String },
-    /// Git-pull profile repos and re-resolve floating marketplaces.
+    /// Check whether a newer claude-profile release is available (no subcommand), or
+    /// git-pull profile repos and re-resolve floating marketplaces (`update profiles`).
     Update {
-        /// Fail if the lockfile is out of date instead of updating.
-        #[arg(long)]
-        frozen: bool,
+        #[command(subcommand)]
+        target: Option<UpdateTarget>,
     },
     /// Show each profile's vendored plugins/skills under ~/.claude-profiles/store/.
     Status,
@@ -98,6 +98,16 @@ enum Command {
     ProfileNames,
 }
 
+#[derive(Subcommand)]
+enum UpdateTarget {
+    /// Git-pull profile repos and re-resolve floating marketplaces.
+    Profiles {
+        /// Fail if the lockfile is out of date instead of updating.
+        #[arg(long)]
+        frozen: bool,
+    },
+}
+
 type LoadedProfiles = (Vec<(String, profile::Profile)>, Vec<(PathBuf, String)>);
 
 fn load_all_profiles(
@@ -136,59 +146,90 @@ fn run() -> anyhow::Result<i32> {
     let env = env_dir();
 
     match cli.command {
-        Some(Command::List) => {
-            commands::list::run(&paths, &cwd, env.as_deref(), &bundled)?;
+        Some(command) => dispatch_command(command, &paths, &cwd, env.as_deref(), &bundled),
+        None => handle_launch(&cli.profiles, cli.yes, &cli.extra, &paths, &cwd, env.as_deref(), &bundled),
+    }
+}
+
+fn dispatch_command(
+    command: Command,
+    paths: &fs_paths::Paths,
+    cwd: &std::path::Path,
+    env: Option<&std::path::Path>,
+    bundled: &std::path::Path,
+) -> anyhow::Result<i32> {
+    match command {
+        Command::List => {
+            commands::list::run(paths, cwd, env, bundled)?;
             Ok(0)
         }
-        Some(Command::Show { target }) => {
-            commands::show::run(&target, &paths, &cwd, env.as_deref(), &bundled)?;
+        Command::Show { target } => {
+            commands::show::run(&target, paths, cwd, env, bundled)?;
             Ok(0)
         }
-        Some(Command::Install { spec }) => {
-            let dir = pack::install_pack(&git::RealGit, &spec, &paths)?;
+        Command::Install { spec } => {
+            let dir = pack::install_pack(&git::RealGit, &spec, paths)?;
             println!("installed pack at {}", dir.display());
             Ok(0)
         }
-        Some(Command::Update { frozen }) => {
-            handle_update(frozen, &paths, &cwd, env.as_deref(), &bundled)?;
+        Command::Update { target: None } => {
+            commands::check_update::run(&std::env::current_exe()?)?;
             Ok(0)
         }
-        Some(Command::New { name }) => {
-            commands::new::run(&name, &paths)?;
+        Command::Update { target: Some(UpdateTarget::Profiles { frozen }) } => {
+            handle_update(frozen, paths, cwd, env, bundled)?;
             Ok(0)
         }
-        Some(Command::Test { target, json, extra }) => commands::test::run(&target, json, &extra),
-        Some(Command::Find { query, sync, refresh_seeds, json, limit, marketplace }) => {
-            commands::find::run(&paths, &query, sync, refresh_seeds, json, limit, marketplace.as_deref())
-        }
-        Some(Command::SelfUninstall { purge }) => {
-            commands::self_uninstall::run(&paths, purge)?;
+        Command::New { name } => {
+            commands::new::run(&name, paths)?;
             Ok(0)
         }
-        Some(Command::Status) => {
-            let (profiles, failed) = load_all_profiles(&paths, &cwd, env.as_deref(), &bundled);
-            for (path, err) in &failed {
-                eprintln!("warning: could not parse profile {}: {err}", path.display());
-            }
-            commands::status::run(&paths, &profiles)?;
+        Command::Test { target, json, extra } => commands::test::run(&target, json, &extra),
+        Command::Find { query, sync, refresh_seeds, json, limit, marketplace } => {
+            commands::find::run(paths, &query, sync, refresh_seeds, json, limit, marketplace.as_deref())
+        }
+        Command::SelfUninstall { purge } => {
+            commands::self_uninstall::run(paths, purge)?;
             Ok(0)
         }
-        Some(Command::Remove { target }) => {
-            let plan = commands::remove::remove_target(&target, &paths, &cwd, env.as_deref(), &bundled)?;
-            commands::remove::apply(&plan)?;
-            println!("removed {target}");
+        Command::Status => handle_status(paths, cwd, env, bundled),
+        Command::Remove { target } => handle_remove(&target, paths, cwd, env, bundled),
+        Command::Completions { shell, install } => {
+            commands::completions::run(shell, install, paths)?;
             Ok(0)
         }
-        Some(Command::Completions { shell, install }) => {
-            commands::completions::run(shell, install, &paths)?;
+        Command::ProfileNames => {
+            commands::list::run_names(paths, cwd, env, bundled)?;
             Ok(0)
         }
-        Some(Command::ProfileNames) => {
-            commands::list::run_names(&paths, &cwd, env.as_deref(), &bundled)?;
-            Ok(0)
-        }
-        None => handle_launch(&cli.profiles, cli.yes, &cli.extra, &paths, &cwd, env.as_deref(), &bundled),
     }
+}
+
+fn handle_status(
+    paths: &fs_paths::Paths,
+    cwd: &std::path::Path,
+    env: Option<&std::path::Path>,
+    bundled: &std::path::Path,
+) -> anyhow::Result<i32> {
+    let (profiles, failed) = load_all_profiles(paths, cwd, env, bundled);
+    for (path, err) in &failed {
+        eprintln!("warning: could not parse profile {}: {err}", path.display());
+    }
+    commands::status::run(paths, &profiles)?;
+    Ok(0)
+}
+
+fn handle_remove(
+    target: &str,
+    paths: &fs_paths::Paths,
+    cwd: &std::path::Path,
+    env: Option<&std::path::Path>,
+    bundled: &std::path::Path,
+) -> anyhow::Result<i32> {
+    let plan = commands::remove::remove_target(target, paths, cwd, env, bundled)?;
+    commands::remove::apply(&plan)?;
+    println!("removed {target}");
+    Ok(0)
 }
 
 fn handle_update(

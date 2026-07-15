@@ -1,3 +1,4 @@
+pub mod check_update;
 pub mod completions;
 pub mod find;
 pub mod list;

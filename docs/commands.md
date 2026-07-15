@@ -10,7 +10,7 @@ Commands:
   list            List available profiles and their sources
   show            Show a profile's details and what it would install
   install         Install or refresh a profile repo (owner/repo[#ref]) without launching
-  update          Git-pull profile repos and re-resolve floating marketplaces
+  update          Check for a newer claude-profile release (see `update profiles` for the old behavior)
   status          Show each profile's vendored plugins/skills under ~/.claude-profiles/store/
   remove          Delete a personal profile or cloned pack
   new             Scaffold a new profile in ~/.claude-profiles/
@@ -112,20 +112,46 @@ Installs a profile repo without launching anything. `<SPEC>` is `owner/repo`,
 - **Writes:** the profile files into `~/.claude-profiles/packs/owner--repo/` (the `owner`/`repo`
   are taken from the URL path tail), replacing any previous install of the same pack. Because a
   pack is stored profiles-only (no `.git`), re-running `install` re-clones fresh rather than
-  pulling in place, and `update` does not refresh packs — re-run `install` to pick up changes.
+  pulling in place, and `update profiles` does not refresh packs — re-run `install` to pick up
+  changes.
 - Does not provision any plugins/marketplaces referenced by the pack's profiles. That
   happens the first time one of its profiles is actually launched.
 
 ## `update`
 
 ```
-Usage: claude-profile update [OPTIONS]
+Usage: claude-profile update [COMMAND]
+
+Commands:
+  profiles  Git-pull profile repos and re-resolve floating marketplaces
+```
+
+Checks whether a newer `claude-profile` release is available — it does **not** touch profiles,
+packs, or marketplaces (see `update profiles` below for that).
+
+- **Behavior:** compares the running version against the latest GitHub release tag
+  (`fuzzyalej/claude-profile`). Prints `claude-profile <version> is up to date`, or
+  `claude-profile <version> is available (you have <version>)` plus an upgrade command guessed
+  from the running executable's path (`cargo install claude-profile --force` under
+  `~/.cargo/bin/`, `brew upgrade claude-profile` under a Homebrew Cellar, otherwise a link to the
+  README's install section). Network failures (including "no release published yet") are printed
+  as a message rather than treated as a hard error.
+- **Never replaces the binary itself** — this is a check, not an installer. Re-run whichever
+  install method you originally used (see [Installing](../README.md#installing)) to actually
+  upgrade.
+
+## `update profiles`
+
+```
+Usage: claude-profile update profiles [OPTIONS]
 
 Options:
       --frozen  Fail if the lockfile is out of date instead of updating
 ```
 
-Git-pulls every installed profile repo (pack) and re-resolves floating marketplaces.
+Git-pulls every installed profile repo (pack) and re-resolves floating marketplaces. This is the
+command that used to be plain `update` — nothing about its behavior changed, only where it lives
+in the CLI.
 
 - **Without `--frozen`:**
   1. Pulls every directory under `~/.claude-profiles/packs/` that is still a git checkout,

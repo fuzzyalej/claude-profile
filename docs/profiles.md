@@ -93,16 +93,19 @@ provisions to the **locked SHA**, not whatever the branch currently points to. T
 reproducibility guarantee: the same profile resolves to the same plugin code across machines
 and over time, until you explicitly move it.
 
-`claude-profile update` (no flag) git-pulls installed profile repos (packs) and, for every
+`claude-profile update profiles` git-pulls installed profile repos (packs) and, for every
 discoverable profile, re-resolves each **floating** (unpinned) marketplace to its current HEAD
 commit and rewrites that profile's `.lock` with the new SHA. Marketplaces pinned to an explicit
-`#ref` in the profile JSON are never moved by `update`.
+`#ref` in the profile JSON are never moved by `update profiles`.
 
-`update --frozen` moves nothing: it pulls no packs and re-resolves no pins. Instead it checks
-whether any discoverable profile's lock is stale (references a marketplace that's missing from
-its `.lock`) and **fails** (non-zero exit) if so, naming every stale profile. Use `--frozen` in
-CI/scripts to assert "nothing needs updating" without mutating anything. See
-[`update`](commands.md#update) for the full flag reference.
+`update profiles --frozen` moves nothing: it pulls no packs and re-resolves no pins. Instead it
+checks whether any discoverable profile's lock is stale (references a marketplace that's missing
+from its `.lock`) and **fails** (non-zero exit) if so, naming every stale profile. Use `--frozen`
+in CI/scripts to assert "nothing needs updating" without mutating anything. See
+[`update profiles`](commands.md#update-profiles) for the full flag reference.
+
+(Plain `claude-profile update`, with no subcommand, checks for a newer `claude-profile` release
+instead — it does not touch profiles or packs. See [`update`](commands.md#update).)
 
 ## Inheriting from another profile
 

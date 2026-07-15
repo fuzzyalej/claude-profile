@@ -78,17 +78,20 @@ branch) or pinned (`owner/repo#ref`, a specific tag/branch/SHA). Regardless of w
 resolved for each marketplace: a git-level pin at the marketplace's install location.
 
 Every subsequent launch provisions to that locked SHA, not whatever a floating branch has
-since moved to, until you explicitly move it. `claude-profile update` (no flag) git-pulls the
+since moved to, until you explicitly move it. `claude-profile update profiles` git-pulls the
 installed profile repos (packs) under `~/.claude-profiles/packs/` and, for every discoverable
 profile, re-resolves each **floating** (unpinned) marketplace to its current HEAD commit and
 rewrites that profile's `.lock`. Marketplaces pinned to an explicit `#ref` never move.
-`update --frozen` moves nothing and instead **fails** (non-zero exit) if any discoverable
-profile's lock is stale, naming the stale profiles. Useful in CI/scripts to assert "nothing
-needs updating" without mutating anything.
+`update profiles --frozen` moves nothing and instead **fails** (non-zero exit) if any
+discoverable profile's lock is stale, naming the stale profiles. Useful in CI/scripts to assert
+"nothing needs updating" without mutating anything.
+
+(Plain `claude-profile update`, with no subcommand, instead checks whether a newer
+`claude-profile` release exists — see [commands.md](commands.md#update).)
 
 In practice, a profile installed today and a profile installed from the same JSON six
-months from now resolve to identical plugin code, until someone runs `claude-profile update` to
-advance the floating pins.
+months from now resolve to identical plugin code, until someone runs
+`claude-profile update profiles` to advance the floating pins.
 
 ## Further reading
 

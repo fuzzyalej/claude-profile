@@ -126,7 +126,8 @@ Notes:
   git URL (also `#ref`-capable). The same forms work with the `claude-profile <target>` shortcut
   and `claude-profile show <target>`.
 - A pack stores profiles only (no `.git`), so re-run `install` to pick up upstream changes;
-  `update` doesn't refresh packs. You still select a single profile at *launch* time by name.
+  `update profiles` doesn't refresh packs. You still select a single profile at *launch* time by
+  name.
 - Use `claude-profile show <profile-or-repo>` to preview a profile's details and exactly what it
   would install before launching.
 
