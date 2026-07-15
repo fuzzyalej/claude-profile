@@ -200,7 +200,14 @@ mod tests {
 
     struct MockGit {
         cloned: RefCell<Vec<(String, PathBuf)>>,
+        checkouts: RefCell<Vec<(PathBuf, String)>>,
         head: String,
+        present: bool,
+    }
+    impl MockGit {
+        fn new(head: &str) -> Self {
+            MockGit { cloned: RefCell::new(vec![]), checkouts: RefCell::new(vec![]), head: head.into(), present: true }
+        }
     }
     impl GitCli for MockGit {
         fn clone(&self, url: &str, dest: &Path) -> anyhow::Result<()> {
@@ -210,8 +217,11 @@ mod tests {
         }
         fn pull(&self, _r: &Path) -> anyhow::Result<()> { Ok(()) }
         fn head_sha(&self, _r: &Path) -> anyhow::Result<String> { Ok(self.head.clone()) }
-        fn checkout(&self, _r: &Path, _gr: &str) -> anyhow::Result<()> { Ok(()) }
-        fn is_repo(&self, _r: &Path) -> bool { true }
+        fn checkout(&self, r: &Path, gr: &str) -> anyhow::Result<()> {
+            self.checkouts.borrow_mut().push((r.to_path_buf(), gr.to_string()));
+            Ok(())
+        }
+        fn is_repo(&self, _r: &Path) -> bool { self.present }
         fn sparse_fetch(&self, _u: &str, _d: &Path, _s: &str) -> anyhow::Result<()> { Ok(()) }
     }
 
@@ -224,7 +234,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"}}"#);
-        let git = MockGit { cloned: RefCell::new(vec![]), head: "sha1".into() };
+        let git = MockGit::new("sha1");
 
         ensure_marketplace_clones(&git, &p, &paths).unwrap();
         assert_eq!(git.cloned.borrow().len(), 1);
@@ -249,7 +259,7 @@ mod tests {
         fs::write(mkt_dir.join("skills").join("foo").join("SKILL.md"), "# foo").unwrap();
 
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["foo@m"]}"#);
-        let git = MockGit { cloned: RefCell::new(vec![]), head: "sha1".into() };
+        let git = MockGit::new("sha1");
         vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
 
         let vendored = paths.profile_vendor_dir("p").join("foo@m");
@@ -268,7 +278,7 @@ mod tests {
         ).unwrap();
 
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["ext@m"]}"#);
-        let git = MockGit { cloned: RefCell::new(vec![]), head: "sha1".into() };
+        let git = MockGit::new("sha1");
         vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
 
         assert!(git.cloned.borrow().iter().any(|(url, _)| url.contains("owner/ext")));
@@ -284,7 +294,7 @@ mod tests {
         fs::write(personal_skill.join("SKILL.md"), "# my-skill").unwrap();
 
         let p = profile(r#"{"name":"p","plugins":["my-skill@skills-dir"]}"#);
-        let git = MockGit { cloned: RefCell::new(vec![]), head: "sha1".into() };
+        let git = MockGit::new("sha1");
         vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
 
         let vendored = paths.profile_vendor_dir("p").join("my-skill@skills-dir");
@@ -308,7 +318,7 @@ mod tests {
         fs::write(mkt_dir.join("foo").join("a.txt"), "v1").unwrap();
 
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["foo@m"]}"#);
-        let git = MockGit { cloned: RefCell::new(vec![]), head: "sha1".into() };
+        let git = MockGit::new("sha1");
         vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).unwrap();
 
         // Marketplace clone changes (simulating a moved pin):
@@ -329,17 +339,95 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
         let p = profile(r#"{"name":"p","plugins":["missing@skills-dir"]}"#);
-        let git = MockGit { cloned: RefCell::new(vec![]), head: "sha1".into() };
+        let git = MockGit::new("sha1");
         assert!(vendor_plugins(&git, &p, "p", tmp.path(), &paths, false).is_err());
     }
 
     #[test]
     fn pins_explicit_ref_and_records_sha() {
-        let git = MockGit { cloned: RefCell::new(vec![]), head: "sha_after_v1".into() };
+        let git = MockGit::new("sha_after_v1");
         let dir = |_n: &str| PathBuf::from("/mkts/m");
         let mut lock = crate::lock::Lockfile::new("p");
         let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r#v1"}}"#);
         pin_marketplaces(&git, &p, &dir, &mut lock, false).unwrap();
         assert_eq!(lock.marketplaces.get("m").unwrap().sha, "sha_after_v1");
+    }
+
+    #[test]
+    fn uses_locked_sha_when_not_updating_floating() {
+        let profile = crate::profile::Profile::from_json_str(
+            r#"{"name":"p","marketplaces":{"m":"o/r"}}"#).unwrap(); // floating source
+        // after checkout(locked_sha), HEAD is at locked_sha, so head_sha() returns it too
+        let git = MockGit::new("locked_sha");
+        let dir = |_n: &str| PathBuf::from("/mkts/m");
+        let mut lock = crate::lock::Lockfile::new("p");
+        lock.marketplaces.insert("m".into(),
+            crate::lock::LockedMarketplace { source: "o/r".into(), sha: "locked_sha".into() });
+        pin_marketplaces(&git, &profile, &dir, &mut lock, false).unwrap();
+        // checked out the locked sha, not current head
+        assert_eq!(git.checkouts.borrow()[0].1, "locked_sha");
+        assert_eq!(lock.marketplaces.get("m").unwrap().sha, "locked_sha");
+    }
+
+    #[test]
+    fn update_floating_moves_to_current_head() {
+        let profile = crate::profile::Profile::from_json_str(
+            r#"{"name":"p","marketplaces":{"m":"o/r"}}"#).unwrap();
+        let git = MockGit::new("new_head");
+        let dir = |_n: &str| PathBuf::from("/mkts/m");
+        let mut lock = crate::lock::Lockfile::new("p");
+        lock.marketplaces.insert("m".into(),
+            crate::lock::LockedMarketplace { source: "o/r".into(), sha: "old".into() });
+        pin_marketplaces(&git, &profile, &dir, &mut lock, true).unwrap();
+        // floating + update_floating: no checkout to a pinned sha, record current head
+        assert!(git.checkouts.borrow().is_empty());
+        assert_eq!(lock.marketplaces.get("m").unwrap().sha, "new_head");
+    }
+
+    #[test]
+    fn locked_sha_wins_over_explicit_ref() {
+        let profile = crate::profile::Profile::from_json_str(
+            r#"{"name":"p","marketplaces":{"m":"o/r#v2"}}"#).unwrap(); // explicit ref
+        let git = MockGit::new("head_sha");
+        let dir = |_n: &str| PathBuf::from("/mkts/m");
+        let mut lock = crate::lock::Lockfile::new("p");
+        lock.marketplaces.insert("m".into(),
+            crate::lock::LockedMarketplace { source: "o/r#v2".into(), sha: "locked".into() });
+        pin_marketplaces(&git, &profile, &dir, &mut lock, false).unwrap();
+        // locked sha wins over the explicit #ref
+        assert_eq!(git.checkouts.borrow()[0].1, "locked");
+        assert_eq!(lock.marketplaces.get("m").unwrap().sha, "head_sha");
+    }
+
+    #[test]
+    fn non_git_marketplace_degrades_gracefully() {
+        // The official marketplace is installed without a `.git`; pinning must be
+        // skipped (recorded unpinned) instead of failing the whole launch.
+        let profile = crate::profile::Profile::from_json_str(
+            r#"{"name":"p","marketplaces":{"m":"o/r"}}"#).unwrap();
+        let mut git = MockGit::new("SHOULD_NOT_BE_USED");
+        git.present = false; // dir exists but isn't a git checkout
+        let dir = |_n: &str| PathBuf::from("/mkts/m");
+        let mut lock = crate::lock::Lockfile::new("p");
+        pin_marketplaces(&git, &profile, &dir, &mut lock, false).unwrap();
+        // no checkout attempted, and the lock records the marketplace as unpinned
+        assert!(git.checkouts.borrow().is_empty());
+        let locked = lock.marketplaces.get("m").expect("marketplace still recorded in lock");
+        assert_eq!(locked.sha, "");
+        assert_eq!(locked.source, "o/r");
+    }
+
+    #[test]
+    fn update_floating_keeps_explicit_ref_pinned() {
+        let profile = crate::profile::Profile::from_json_str(
+            r#"{"name":"p","marketplaces":{"m":"o/r#v3"}}"#).unwrap(); // explicit ref
+        let git = MockGit::new("new_head");
+        let dir = |_n: &str| PathBuf::from("/mkts/m");
+        let mut lock = crate::lock::Lockfile::new("p");
+        lock.marketplaces.insert("m".into(),
+            crate::lock::LockedMarketplace { source: "o/r#v3".into(), sha: "old_sha".into() });
+        pin_marketplaces(&git, &profile, &dir, &mut lock, true).unwrap();
+        // explicit ref stays pinned even when updating floating
+        assert_eq!(git.checkouts.borrow()[0].1, "v3");
     }
 }
