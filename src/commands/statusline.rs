@@ -58,6 +58,36 @@ pub fn write_json_object(
     Ok(())
 }
 
+pub const RENDER_COMMAND: &str = "claude-profile statusline-render";
+
+#[derive(Debug)]
+pub enum InstallOutcome {
+    AlreadyInstalled,
+    Installed { settings_path: PathBuf, backup_path: PathBuf },
+}
+
+pub fn install(scope: Scope, paths: &Paths, cwd: &Path) -> anyhow::Result<InstallOutcome> {
+    let target = settings_path(scope, paths, cwd);
+    let mut settings = read_json_object(&target)?;
+    let current = settings.get("statusLine").cloned().unwrap_or(serde_json::Value::Null);
+    if current.get("command").and_then(serde_json::Value::as_str) == Some(RENDER_COMMAND) {
+        return Ok(InstallOutcome::AlreadyInstalled);
+    }
+
+    let backup_file = backup_path(scope, paths, cwd);
+    let mut backup = serde_json::Map::new();
+    backup.insert("prior_status_line".to_string(), current);
+    write_json_object(&backup_file, &backup)?;
+
+    settings.insert(
+        "statusLine".to_string(),
+        serde_json::json!({"type": "command", "command": RENDER_COMMAND}),
+    );
+    write_json_object(&target, &settings)?;
+
+    Ok(InstallOutcome::Installed { settings_path: target, backup_path: backup_file })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,5 +170,85 @@ mod tests {
         write_json_object(&path, &map).unwrap();
         let read_back = read_json_object(&path).unwrap();
         assert_eq!(read_back, map);
+    }
+
+    #[test]
+    fn install_creates_settings_file_when_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+
+        let outcome = install(Scope::Global, &paths, &cwd).unwrap();
+        assert!(matches!(outcome, InstallOutcome::Installed { .. }));
+
+        let written = read_json_object(&settings_path(Scope::Global, &paths, &cwd)).unwrap();
+        assert_eq!(
+            written.get("statusLine").unwrap().get("command").unwrap(),
+            RENDER_COMMAND
+        );
+    }
+
+    #[test]
+    fn install_preserves_unrelated_settings_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+        let target = settings_path(Scope::Global, &paths, &cwd);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, r#"{"model": "opus", "other": {"nested": true}}"#).unwrap();
+
+        install(Scope::Global, &paths, &cwd).unwrap();
+
+        let written = read_json_object(&target).unwrap();
+        assert_eq!(written.get("model").unwrap(), "opus");
+        assert_eq!(written.get("other").unwrap(), &serde_json::json!({"nested": true}));
+        assert_eq!(written.get("statusLine").unwrap().get("command").unwrap(), RENDER_COMMAND);
+    }
+
+    #[test]
+    fn install_backs_up_prior_status_line() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+        let target = settings_path(Scope::Global, &paths, &cwd);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, r#"{"statusLine": {"type": "command", "command": "my-old-script"}}"#).unwrap();
+
+        let outcome = install(Scope::Global, &paths, &cwd).unwrap();
+        let backup_file = match outcome {
+            InstallOutcome::Installed { backup_path, .. } => backup_path,
+            _ => panic!("expected Installed"),
+        };
+        let backup = read_json_object(&backup_file).unwrap();
+        assert_eq!(
+            backup.get("prior_status_line").unwrap().get("command").unwrap(),
+            "my-old-script"
+        );
+    }
+
+    #[test]
+    fn install_backs_up_null_when_no_prior_status_line() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+
+        let outcome = install(Scope::Global, &paths, &cwd).unwrap();
+        let backup_file = match outcome {
+            InstallOutcome::Installed { backup_path, .. } => backup_path,
+            _ => panic!("expected Installed"),
+        };
+        let backup = read_json_object(&backup_file).unwrap();
+        assert!(backup.get("prior_status_line").unwrap().is_null());
+    }
+
+    #[test]
+    fn install_is_a_noop_when_already_installed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+
+        install(Scope::Global, &paths, &cwd).unwrap();
+        let outcome = install(Scope::Global, &paths, &cwd).unwrap();
+        assert!(matches!(outcome, InstallOutcome::AlreadyInstalled));
     }
 }
