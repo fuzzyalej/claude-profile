@@ -1,57 +1,63 @@
 # Statusline: show the active profile
 
-When `claude-profile` launches a session, it spawns `claude` with the environment variable
-`CLAUDE_PROFILE` set to the profile name (see `src/launch.rs`). That variable is only present
-in sessions started through `claude-profile`; a plain `claude` invocation never sets it. So it
-tells you whether you're in a gated profile right now, and which one.
+`claude-profile statusline install` adds a `statusLine` entry to Claude Code's
+`settings.json` that shows the active profile — colored per profile name — whenever
+a session was launched through `claude-profile`. Outside a `claude-profile` session
+(a plain `claude` invocation), it shows nothing.
 
-Claude Code's [statusline](https://docs.claude.com/en/docs/claude-code/statusline) feature runs
-an arbitrary shell command on an interval and shows its stdout at the bottom of the terminal.
-Point it at `$CLAUDE_PROFILE` to show the active profile in the terminal.
+It composes with whatever `statusLine` command you already had configured: your
+existing command still runs, with the profile tag prefixed in front of its output.
 
-## Setup
+## Install
 
-Add a `statusLine` entry to your Claude Code `settings.json` (global `~/.claude/settings.json`
-or a project's `.claude/settings.json`):
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "echo \"${CLAUDE_PROFILE:-no-profile}\""
-  }
-}
+```bash
+claude-profile statusline install            # global: ~/.claude/settings.json
+claude-profile statusline install --project  # this repo only: ./.claude/settings.json
 ```
 
-- Inside a `claude-profile <name>` session, the statusline shows `<name>`.
-- Inside a plain `claude` session (not launched via `claude-profile`), it falls back to
-  `no-profile`.
+This backs up whatever `statusLine` config was already there (or records that there
+wasn't one) before making the change, so `uninstall` can put it back exactly as it was.
 
-## Combining with other statusline content
+Running `install` again when it's already installed is a no-op.
 
-The command only needs to *include* the profile; it doesn't have to be the whole line. For
-example, alongside the current directory:
+If you previously set this up by hand — a `statusLine.command` that echoes
+`${CLAUDE_PROFILE:-no-profile}` directly — `install` will back up and wrap that old
+command too, since it doesn't recognize it as its own. The profile name would then
+show up twice in the line: once from the new colored tag, once from your old echo.
+Remove the old manual snippet from `settings.json` before running `install` to avoid
+the doubled output.
 
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "echo \"[${CLAUDE_PROFILE:-no-profile}] $(basename \"$PWD\")\""
-  }
-}
+## Uninstall
+
+```bash
+claude-profile statusline uninstall
+claude-profile statusline uninstall --project
 ```
 
-Claude Code also passes session context as JSON on stdin to the statusline command for more
-advanced scripts (model, cwd, cost, etc.). See the
-[statusline docs](https://docs.claude.com/en/docs/claude-code/statusline) for the full schema.
-`$CLAUDE_PROFILE` is simply an extra environment variable available alongside that input.
+Restores the prior `statusLine` config (or removes the key entirely if there wasn't
+one), and deletes the backup. If `settings.json`'s `statusLine` was hand-edited since
+install, `uninstall` warns and leaves it alone rather than overwriting your changes —
+the backup is kept in that case, so nothing is lost.
+
+## How it works
+
+When `claude-profile` launches a session, it spawns `claude` with the environment
+variable `CLAUDE_PROFILE` set to the profile name (see `src/launch.rs`) — combined
+launches get the joined name, e.g. `web+infra`. The installed statusline reads that
+variable on every render tick; when it's unset (a plain `claude` session), the
+profile tag is simply omitted.
 
 ## Notes
 
-- `$CLAUDE_PROFILE` reflects the profile that spawned the *current* `claude` process. If you
-  run `claude` directly (not through `claude-profile`) inside a shell that happens to have
-  `CLAUDE_PROFILE` exported from a previous session, that stale value will show. Export it
-  only in shells where you want it scoped, or rely on the fact that `claude-profile` always
-  re-sets it correctly for the process it spawns.
-- This is read-only observability. It does not change what's enabled. See
-  [how it works](how-it-works.md) for the actual isolation model.
+- Respects `NO_COLOR`: set it to get a plain `[profile-name]` tag with no ANSI color
+  codes.
+- This is read-only observability layered on top of your existing statusline. It
+  does not change what's enabled. See [how it works](how-it-works.md) for the actual
+  plugin/skill isolation model.
+- Prefer to wire this up by hand instead? The statusline command is just
+  `claude-profile statusline-render` — point your own `settings.json`'s `statusLine.command`
+  at it directly, or read `$CLAUDE_PROFILE` yourself in a custom script. Note that
+  `statusline-render` reads all of stdin before printing anything, which is fine when
+  Claude Code pipes it JSON and closes stdin — but running it bare in a terminal will
+  hang waiting for input until stdin closes (e.g. Ctrl-D). For manual testing, pipe
+  something in instead: `echo '{}' | claude-profile statusline-render`.

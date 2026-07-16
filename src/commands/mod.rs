@@ -8,4 +8,5 @@ pub mod remove;
 pub mod update;
 pub mod new;
 pub mod self_uninstall;
+pub mod statusline;
 pub mod test;
