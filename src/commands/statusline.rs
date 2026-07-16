@@ -1,4 +1,5 @@
 use crate::fs_paths::Paths;
+use clap::Subcommand;
 use std::path::{Path, PathBuf};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -226,6 +227,61 @@ pub fn render(paths: &Paths, cwd: &Path) -> String {
     let profile = std::env::var("CLAUDE_PROFILE").ok();
     let color_enabled = std::env::var_os("NO_COLOR").is_none();
     render_line(profile.as_deref(), color_enabled, wrapped_output.as_deref())
+}
+
+#[derive(Subcommand)]
+pub enum Action {
+    /// Install the statusline: shows the active profile in Claude Code's statusline,
+    /// composed with whatever statusLine command was already configured.
+    Install {
+        /// Target ./.claude/settings.json instead of the global ~/.claude/settings.json.
+        #[arg(long)]
+        project: bool,
+    },
+    /// Remove the statusline and restore any prior statusLine config.
+    Uninstall {
+        /// Target ./.claude/settings.json instead of the global ~/.claude/settings.json.
+        #[arg(long)]
+        project: bool,
+    },
+}
+
+pub fn run_action(action: Action, paths: &Paths, cwd: &Path) -> anyhow::Result<i32> {
+    match action {
+        Action::Install { project } => {
+            let scope = if project { Scope::Project } else { Scope::Global };
+            match install(scope, paths, cwd)? {
+                InstallOutcome::AlreadyInstalled => {
+                    println!("statusline already installed");
+                    Ok(0)
+                }
+                InstallOutcome::Installed { settings_path, .. } => {
+                    println!("installed statusline into {}", settings_path.display());
+                    Ok(0)
+                }
+            }
+        }
+        Action::Uninstall { project } => {
+            let scope = if project { Scope::Project } else { Scope::Global };
+            match uninstall(scope, paths, cwd)? {
+                UninstallOutcome::NothingToDo => {
+                    println!("no statusline installed, nothing to do");
+                    Ok(0)
+                }
+                UninstallOutcome::Restored { settings_path } => {
+                    println!("removed statusline from {}, restored prior config", settings_path.display());
+                    Ok(0)
+                }
+                UninstallOutcome::ChangedSinceInstall { settings_path } => {
+                    eprintln!(
+                        "statusLine in {} was changed since install; leaving it alone (backup preserved)",
+                        settings_path.display()
+                    );
+                    Ok(1)
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -601,5 +657,41 @@ mod tests {
         write_json_object(&backup_path(Scope::Global, &paths, &cwd), &backup).unwrap();
 
         assert_eq!(resolve_wrapped_command(&paths, &cwd), None);
+    }
+
+    #[test]
+    fn run_action_install_then_uninstall_round_trips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+        let target = settings_path(Scope::Global, &paths, &cwd);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, r#"{"statusLine": {"type": "command", "command": "my-old-script"}}"#).unwrap();
+
+        let code = run_action(Action::Install { project: false }, &paths, &cwd).unwrap();
+        assert_eq!(code, 0);
+        let installed = read_json_object(&target).unwrap();
+        assert_eq!(installed.get("statusLine").unwrap().get("command").unwrap(), RENDER_COMMAND);
+
+        let code = run_action(Action::Uninstall { project: false }, &paths, &cwd).unwrap();
+        assert_eq!(code, 0);
+        let restored = read_json_object(&target).unwrap();
+        assert_eq!(restored.get("statusLine").unwrap().get("command").unwrap(), "my-old-script");
+    }
+
+    #[test]
+    fn run_action_uninstall_returns_nonzero_when_changed_since_install() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+
+        run_action(Action::Install { project: false }, &paths, &cwd).unwrap();
+        let target = settings_path(Scope::Global, &paths, &cwd);
+        let mut settings = read_json_object(&target).unwrap();
+        settings.insert("statusLine".to_string(), serde_json::json!({"type": "command", "command": "other"}));
+        write_json_object(&target, &settings).unwrap();
+
+        let code = run_action(Action::Uninstall { project: false }, &paths, &cwd).unwrap();
+        assert_eq!(code, 1);
     }
 }
