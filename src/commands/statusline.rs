@@ -88,6 +88,42 @@ pub fn install(scope: Scope, paths: &Paths, cwd: &Path) -> anyhow::Result<Instal
     Ok(InstallOutcome::Installed { settings_path: target, backup_path: backup_file })
 }
 
+#[derive(Debug)]
+pub enum UninstallOutcome {
+    NothingToDo,
+    Restored { settings_path: PathBuf },
+    ChangedSinceInstall { settings_path: PathBuf },
+}
+
+pub fn uninstall(scope: Scope, paths: &Paths, cwd: &Path) -> anyhow::Result<UninstallOutcome> {
+    let backup_file = backup_path(scope, paths, cwd);
+    if !backup_file.exists() {
+        return Ok(UninstallOutcome::NothingToDo);
+    }
+
+    let target = settings_path(scope, paths, cwd);
+    let mut settings = read_json_object(&target)?;
+    let current_cmd = settings
+        .get("statusLine")
+        .and_then(|v| v.get("command"))
+        .and_then(serde_json::Value::as_str);
+    if current_cmd != Some(RENDER_COMMAND) {
+        return Ok(UninstallOutcome::ChangedSinceInstall { settings_path: target });
+    }
+
+    let backup = read_json_object(&backup_file)?;
+    let prior = backup.get("prior_status_line").cloned().unwrap_or(serde_json::Value::Null);
+    if prior.is_null() {
+        settings.remove("statusLine");
+    } else {
+        settings.insert("statusLine".to_string(), prior);
+    }
+    write_json_object(&target, &settings)?;
+    std::fs::remove_file(&backup_file)?;
+
+    Ok(UninstallOutcome::Restored { settings_path: target })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,5 +286,69 @@ mod tests {
         install(Scope::Global, &paths, &cwd).unwrap();
         let outcome = install(Scope::Global, &paths, &cwd).unwrap();
         assert!(matches!(outcome, InstallOutcome::AlreadyInstalled));
+    }
+
+    #[test]
+    fn uninstall_is_a_noop_when_nothing_installed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+
+        let outcome = uninstall(Scope::Global, &paths, &cwd).unwrap();
+        assert!(matches!(outcome, UninstallOutcome::NothingToDo));
+    }
+
+    #[test]
+    fn uninstall_restores_prior_command_and_removes_backup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+        let target = settings_path(Scope::Global, &paths, &cwd);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, r#"{"statusLine": {"type": "command", "command": "my-old-script"}}"#).unwrap();
+
+        install(Scope::Global, &paths, &cwd).unwrap();
+        let outcome = uninstall(Scope::Global, &paths, &cwd).unwrap();
+        assert!(matches!(outcome, UninstallOutcome::Restored { .. }));
+
+        let restored = read_json_object(&target).unwrap();
+        assert_eq!(restored.get("statusLine").unwrap().get("command").unwrap(), "my-old-script");
+        assert!(!backup_path(Scope::Global, &paths, &cwd).exists());
+    }
+
+    #[test]
+    fn uninstall_removes_status_line_key_when_there_was_no_prior_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+
+        install(Scope::Global, &paths, &cwd).unwrap();
+        uninstall(Scope::Global, &paths, &cwd).unwrap();
+
+        let restored = read_json_object(&settings_path(Scope::Global, &paths, &cwd)).unwrap();
+        assert!(!restored.contains_key("statusLine"));
+    }
+
+    #[test]
+    fn uninstall_aborts_without_deleting_backup_if_command_changed_since_install() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().to_path_buf();
+        let target = settings_path(Scope::Global, &paths, &cwd);
+
+        install(Scope::Global, &paths, &cwd).unwrap();
+        // Simulate the user hand-editing settings.json since install.
+        let mut settings = read_json_object(&target).unwrap();
+        settings.insert(
+            "statusLine".to_string(),
+            serde_json::json!({"type": "command", "command": "something-else"}),
+        );
+        write_json_object(&target, &settings).unwrap();
+
+        let outcome = uninstall(Scope::Global, &paths, &cwd).unwrap();
+        assert!(matches!(outcome, UninstallOutcome::ChangedSinceInstall { .. }));
+        assert!(backup_path(Scope::Global, &paths, &cwd).exists());
+        let unchanged = read_json_object(&target).unwrap();
+        assert_eq!(unchanged.get("statusLine").unwrap().get("command").unwrap(), "something-else");
     }
 }
