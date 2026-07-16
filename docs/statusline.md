@@ -20,6 +20,13 @@ wasn't one) before making the change, so `uninstall` can put it back exactly as 
 
 Running `install` again when it's already installed is a no-op.
 
+If you previously set this up by hand — a `statusLine.command` that echoes
+`${CLAUDE_PROFILE:-no-profile}` directly — `install` will back up and wrap that old
+command too, since it doesn't recognize it as its own. The profile name would then
+show up twice in the line: once from the new colored tag, once from your old echo.
+Remove the old manual snippet from `settings.json` before running `install` to avoid
+the doubled output.
+
 ## Uninstall
 
 ```bash
@@ -49,4 +56,8 @@ profile tag is simply omitted.
   plugin/skill isolation model.
 - Prefer to wire this up by hand instead? The statusline command is just
   `claude-profile statusline-render` — point your own `settings.json`'s `statusLine.command`
-  at it directly, or read `$CLAUDE_PROFILE` yourself in a custom script.
+  at it directly, or read `$CLAUDE_PROFILE` yourself in a custom script. Note that
+  `statusline-render` reads all of stdin before printing anything, which is fine when
+  Claude Code pipes it JSON and closes stdin — but running it bare in a terminal will
+  hang waiting for input until stdin closes (e.g. Ctrl-D). For manual testing, pipe
+  something in instead: `echo '{}' | claude-profile statusline-render`.

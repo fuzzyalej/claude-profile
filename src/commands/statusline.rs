@@ -64,7 +64,13 @@ pub const RENDER_COMMAND: &str = "claude-profile statusline-render";
 #[derive(Debug)]
 pub enum InstallOutcome {
     AlreadyInstalled,
-    Installed { settings_path: PathBuf, backup_path: PathBuf },
+    Installed {
+        settings_path: PathBuf,
+        // Where the prior statusLine config was backed up; useful for API completeness
+        // and exercised by tests, but the CLI dispatcher doesn't print it today.
+        #[allow(dead_code)]
+        backup_path: PathBuf,
+    },
 }
 
 pub fn install(scope: Scope, paths: &Paths, cwd: &Path) -> anyhow::Result<InstallOutcome> {
