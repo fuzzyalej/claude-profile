@@ -136,6 +136,32 @@ one plugin and drops another:
 }
 ```
 
+## The plugin I want isn't in a marketplace
+
+Every id in `plugins` is resolved through some marketplace's `marketplace.json`;
+`claude-profile` has no way to vendor a bare `owner/repo` that only contains a
+`plugin.json`. Pointing a `marketplaces` entry at such a repo fails — there is no
+manifest to read. When you have a plugin but no marketplace, pick one of these:
+
+1. **It probably *is* in a marketplace — find it.** Many standalone plugin repos are
+   also published (via a `url` or `git-subdir` source) inside a larger marketplace.
+   Run [`find`](commands.md#find) to search the cross-marketplace index; if it turns
+   up, reference it as `plugin@that-marketplace` and declare *that* marketplace, not
+   the plugin's own repo. For example, `obra/the-elements-of-style` is a plugin-only
+   repo, but the plugin ships through `superpowers-marketplace`, so you write
+   `elements-of-style@superpowers-marketplace` and declare
+   `"superpowers-marketplace": "obra/superpowers-marketplace"`.
+
+2. **Point `pluginDirs` at a local clone.** Clone the plugin repo yourself and add its
+   path to `pluginDirs`. That path goes straight to `claude --plugin-dir`, bypassing
+   marketplaces entirely — the fit for a plugin you're developing, or one that only
+   exists as a repo. Note that `pluginDirs` entries are filesystem paths, not `@`-ids,
+   and are not vendored or SHA-locked the way marketplace plugins are.
+
+3. **If it's really just skill(s), use `@skills-dir`.** Drop the skill folder under
+   `~/.claude/skills/<name>` (or project-local `.claude/skills/<name>`) and reference
+   it as `<name>@skills-dir`. See [Referencing a personal loose skill](#referencing-a-personal-loose-skill).
+
 ## Referencing a personal loose skill
 
 A **loose skill** living directly under `~/.claude/skills/<name>` or
