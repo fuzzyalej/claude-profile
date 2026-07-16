@@ -24,11 +24,13 @@ impl Paths {
         self.home.join(".claude").join("skills")
     }
 
-    // No longer read directly by claude-profile (plugins/skills are vendored per-profile
-    // instead of touching global ~/.claude state), but kept for parity/tests.
-    #[allow(dead_code)]
+    // Claude Code's own global settings file — used by `statusline install` to add a statusLine entry.
     pub fn claude_settings_path(&self) -> PathBuf {
         self.home.join(".claude").join("settings.json")
+    }
+
+    pub fn statusline_backups_dir(&self) -> PathBuf {
+        self.user_profiles_dir().join("statusline-backups")
     }
 
     // Phase 2/3: profile locking (concurrent-launch guard) will use this.
@@ -108,6 +110,15 @@ mod tests {
         assert_eq!(
             p.profile_vendor_dir("rust-developer"),
             PathBuf::from("/h/.claude-profiles/store/rust-developer/vendor")
+        );
+    }
+
+    #[test]
+    fn derives_statusline_backups_dir() {
+        let p = Paths::from_home(PathBuf::from("/h"));
+        assert_eq!(
+            p.statusline_backups_dir(),
+            PathBuf::from("/h/.claude-profiles/statusline-backups")
         );
     }
 }
