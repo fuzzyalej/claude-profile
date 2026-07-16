@@ -160,6 +160,61 @@ pub fn render_line(profile_name: Option<&str>, color_enabled: bool, wrapped_outp
     compose(tag.as_deref(), wrapped_output)
 }
 
+pub fn run_wrapped_command(command: &str, stdin_bytes: &[u8]) -> anyhow::Result<Option<String>> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        // Best-effort: a wrapped command that doesn't read stdin (e.g. `echo`) closes its
+        // read end early, which would make this write fail with EPIPE. That's expected,
+        // not a real error, so it's ignored rather than propagated.
+        let _ = stdin.write_all(stdin_bytes);
+    }
+
+    let output = child.wait_with_output()?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(if text.is_empty() { None } else { Some(text) })
+}
+
+fn resolve_wrapped_command(paths: &Paths, cwd: &Path) -> Option<String> {
+    for scope in [Scope::Project, Scope::Global] {
+        let backup_file = backup_path(scope, paths, cwd);
+        if !backup_file.exists() {
+            continue;
+        }
+        let Ok(backup) = read_json_object(&backup_file) else { continue };
+        let Some(prior) = backup.get("prior_status_line") else { continue };
+        if let Some(cmd) = prior.get("command").and_then(serde_json::Value::as_str) {
+            return Some(cmd.to_string());
+        }
+    }
+    None
+}
+
+/// Top-level entry point invoked by Claude Code as the `statusLine` command. Never
+/// errors out: any failure anywhere in this path falls back to an empty string rather
+/// than surfacing a Rust error, since a broken statusline command breaks Claude Code's
+/// UI chrome.
+pub fn render(paths: &Paths, cwd: &Path) -> String {
+    let mut input = Vec::new();
+    let _ = std::io::Read::read_to_end(&mut std::io::stdin(), &mut input);
+
+    let wrapped_output = resolve_wrapped_command(paths, cwd)
+        .and_then(|cmd| run_wrapped_command(&cmd, &input).ok().flatten());
+
+    let profile = std::env::var("CLAUDE_PROFILE").ok();
+    let color_enabled = std::env::var_os("NO_COLOR").is_none();
+    render_line(profile.as_deref(), color_enabled, wrapped_output.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,5 +493,87 @@ mod tests {
     #[test]
     fn render_line_combines_tag_and_wrapped_output() {
         assert_eq!(render_line(Some("web-dev"), false, Some("model info")), "[web-dev] model info");
+    }
+
+    #[test]
+    fn run_wrapped_command_captures_trimmed_stdout() {
+        let out = run_wrapped_command("echo hello", &[]).unwrap();
+        assert_eq!(out.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn run_wrapped_command_forwards_stdin() {
+        let out = run_wrapped_command("cat", b"piped-in").unwrap();
+        assert_eq!(out.as_deref(), Some("piped-in"));
+    }
+
+    #[test]
+    fn run_wrapped_command_returns_none_for_empty_output() {
+        let out = run_wrapped_command("true", &[]).unwrap();
+        assert_eq!(out, None);
+    }
+
+    #[test]
+    fn resolve_wrapped_command_prefers_project_backup_over_global() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        let mut global_backup = serde_json::Map::new();
+        global_backup.insert(
+            "prior_status_line".to_string(),
+            serde_json::json!({"command": "echo global"}),
+        );
+        write_json_object(&backup_path(Scope::Global, &paths, &cwd), &global_backup).unwrap();
+
+        let mut project_backup = serde_json::Map::new();
+        project_backup.insert(
+            "prior_status_line".to_string(),
+            serde_json::json!({"command": "echo project"}),
+        );
+        write_json_object(&backup_path(Scope::Project, &paths, &cwd), &project_backup).unwrap();
+
+        assert_eq!(resolve_wrapped_command(&paths, &cwd), Some("echo project".to_string()));
+    }
+
+    #[test]
+    fn resolve_wrapped_command_falls_back_to_global() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        let mut global_backup = serde_json::Map::new();
+        global_backup.insert(
+            "prior_status_line".to_string(),
+            serde_json::json!({"command": "echo global"}),
+        );
+        write_json_object(&backup_path(Scope::Global, &paths, &cwd), &global_backup).unwrap();
+
+        assert_eq!(resolve_wrapped_command(&paths, &cwd), Some("echo global".to_string()));
+    }
+
+    #[test]
+    fn resolve_wrapped_command_is_none_when_no_backups_exist() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+        assert_eq!(resolve_wrapped_command(&paths, &cwd), None);
+    }
+
+    #[test]
+    fn resolve_wrapped_command_is_none_when_prior_status_line_was_null() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let cwd = tmp.path().join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        let mut backup = serde_json::Map::new();
+        backup.insert("prior_status_line".to_string(), serde_json::Value::Null);
+        write_json_object(&backup_path(Scope::Global, &paths, &cwd), &backup).unwrap();
+
+        assert_eq!(resolve_wrapped_command(&paths, &cwd), None);
     }
 }
