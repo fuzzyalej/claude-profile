@@ -172,14 +172,27 @@ pub fn run_wrapped_command(command: &str, stdin_bytes: &[u8]) -> anyhow::Result<
         .stderr(Stdio::null())
         .spawn()?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        // Best-effort: a wrapped command that doesn't read stdin (e.g. `echo`) closes its
-        // read end early, which would make this write fail with EPIPE. That's expected,
-        // not a real error, so it's ignored rather than propagated.
-        let _ = stdin.write_all(stdin_bytes);
-    }
+    // Write stdin on a separate thread so the parent can concurrently drain the
+    // child's stdout below via `wait_with_output()`. Writing all of stdin_bytes
+    // synchronously before reading stdout can deadlock: if the wrapped command
+    // produces enough output to fill the OS pipe buffer before it finishes (or
+    // starts) reading stdin, the child blocks writing to a full stdout pipe while
+    // the parent blocks writing remaining stdin the child never reads.
+    let stdin_handle = child.stdin.take().map(|mut stdin| {
+        let stdin_bytes = stdin_bytes.to_vec();
+        std::thread::spawn(move || {
+            // Best-effort: a wrapped command that doesn't read stdin (e.g. `echo`) closes its
+            // read end early, which would make this write fail with EPIPE. That's expected,
+            // not a real error, so it's ignored rather than propagated.
+            let _ = stdin.write_all(&stdin_bytes);
+        })
+    });
 
     let output = child.wait_with_output()?;
+    if let Some(handle) = stdin_handle {
+        // Ignore join errors the same way a write failure (EPIPE) is ignored above.
+        let _ = handle.join();
+    }
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(if text.is_empty() { None } else { Some(text) })
 }
@@ -511,6 +524,19 @@ mod tests {
     fn run_wrapped_command_returns_none_for_empty_output() {
         let out = run_wrapped_command("true", &[]).unwrap();
         assert_eq!(out, None);
+    }
+
+    #[test]
+    fn run_wrapped_command_handles_large_stdin_without_deadlock() {
+        // A payload larger than typical OS pipe buffers (usually 64KB). If stdin were
+        // written synchronously before draining stdout, `cat` echoing this much data
+        // back would fill the stdout pipe while the parent is still blocked writing
+        // stdin, deadlocking both sides. This must return promptly with the full
+        // payload intact.
+        let payload = vec![b'x'; 200 * 1024];
+        let out = run_wrapped_command("cat", &payload).unwrap();
+        let expected = String::from_utf8(payload).unwrap();
+        assert_eq!(out.as_deref(), Some(expected.trim()));
     }
 
     #[test]
