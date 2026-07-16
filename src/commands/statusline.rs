@@ -124,6 +124,42 @@ pub fn uninstall(scope: Scope, paths: &Paths, cwd: &Path) -> anyhow::Result<Unin
     Ok(UninstallOutcome::Restored { settings_path: target })
 }
 
+const PALETTE: [&str; 6] = [
+    "\x1b[31m", // red
+    "\x1b[32m", // green
+    "\x1b[33m", // yellow
+    "\x1b[34m", // blue
+    "\x1b[35m", // magenta
+    "\x1b[36m", // cyan
+];
+
+fn color_index(name: &str) -> usize {
+    (name.bytes().map(|b| b as usize).sum::<usize>()) % PALETTE.len()
+}
+
+pub fn format_tag(name: &str, color_enabled: bool) -> String {
+    if color_enabled {
+        format!("{}[{name}]\x1b[0m", PALETTE[color_index(name)])
+    } else {
+        format!("[{name}]")
+    }
+}
+
+pub fn compose(tag: Option<&str>, wrapped: Option<&str>) -> String {
+    let wrapped = wrapped.filter(|w| !w.is_empty());
+    match (tag, wrapped) {
+        (Some(t), Some(w)) => format!("{t} {w}"),
+        (Some(t), None) => t.to_string(),
+        (None, Some(w)) => w.to_string(),
+        (None, None) => String::new(),
+    }
+}
+
+pub fn render_line(profile_name: Option<&str>, color_enabled: bool, wrapped_output: Option<&str>) -> String {
+    let tag = profile_name.filter(|n| !n.is_empty()).map(|n| format_tag(n, color_enabled));
+    compose(tag.as_deref(), wrapped_output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +386,57 @@ mod tests {
         assert!(backup_path(Scope::Global, &paths, &cwd).exists());
         let unchanged = read_json_object(&target).unwrap();
         assert_eq!(unchanged.get("statusLine").unwrap().get("command").unwrap(), "something-else");
+    }
+
+    #[test]
+    fn format_tag_wraps_name_in_brackets() {
+        assert!(format_tag("web-dev", false).contains("[web-dev]"));
+        assert_eq!(format_tag("web-dev", false), "[web-dev]");
+    }
+
+    #[test]
+    fn format_tag_adds_ansi_color_when_enabled() {
+        let tag = format_tag("web-dev", true);
+        assert!(tag.starts_with("\x1b["));
+        assert!(tag.ends_with("\x1b[0m"));
+        assert!(tag.contains("[web-dev]"));
+    }
+
+    #[test]
+    fn format_tag_is_deterministic_per_name() {
+        assert_eq!(format_tag("web-dev", true), format_tag("web-dev", true));
+    }
+
+    #[test]
+    fn format_tag_differs_by_name_color() {
+        // byte-sum("a") % 6 = 1, byte-sum("b") % 6 = 2 -- guaranteed distinct palette slots.
+        let tag_a = format_tag("a", true);
+        let tag_b = format_tag("b", true);
+        let color_of = |s: &str| s.split(']').next().unwrap().to_string();
+        assert_ne!(color_of(&tag_a), color_of(&tag_b));
+    }
+
+    #[test]
+    fn compose_handles_all_four_combinations() {
+        assert_eq!(compose(None, None), "");
+        assert_eq!(compose(Some("[p]"), None), "[p]");
+        assert_eq!(compose(None, Some("model info")), "model info");
+        assert_eq!(compose(Some("[p]"), Some("model info")), "[p] model info");
+    }
+
+    #[test]
+    fn compose_treats_empty_wrapped_output_as_absent() {
+        assert_eq!(compose(Some("[p]"), Some("")), "[p]");
+    }
+
+    #[test]
+    fn render_line_omits_tag_when_profile_name_is_none_or_empty() {
+        assert_eq!(render_line(None, false, Some("model info")), "model info");
+        assert_eq!(render_line(Some(""), false, Some("model info")), "model info");
+    }
+
+    #[test]
+    fn render_line_combines_tag_and_wrapped_output() {
+        assert_eq!(render_line(Some("web-dev"), false, Some("model info")), "[web-dev] model info");
     }
 }
