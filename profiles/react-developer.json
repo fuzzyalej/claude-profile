@@ -1,0 +1,36 @@
+{
+  "name": "react-developer",
+  "description": "TDD-driven React: JS/TS + typescript-lsp, Next.js expertise, frontend & UI design, accessibility, live docs, performance, testing, review + commit",
+  "marketplaces": {
+    "buildwithclaude": "davepoon/buildwithclaude",
+    "claude-code-workflows": "wshobson/agents",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "context7@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official",
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
+    "javascript-typescript@claude-code-workflows",
+    "typescript-lsp@claude-plugins-official",
+    "nextjs-expert@buildwithclaude",
+    "frontend-design@claude-plugins-official",
+    "ui-design@claude-code-workflows",
+    "accessibility-compliance@claude-code-workflows"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}

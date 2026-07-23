@@ -1,0 +1,19 @@
+{
+  "name": "rust-developer",
+  "extends": "dev-base",
+  "description": "TDD-driven Rust: rust-analyzer type intelligence, backend & API architecture, database design, live crate docs, performance, testing, review + commit workflows",
+  "marketplaces": {
+    "claude-code-workflows": "wshobson/agents"
+  },
+  "plugins": [
+    "rust-analyzer-lsp@claude-plugins-official",
+    "backend-development@claude-code-workflows",
+    "database-design@claude-code-workflows",
+    "code-refactoring@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {}
+}

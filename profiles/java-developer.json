@@ -1,0 +1,35 @@
+{
+  "name": "java-developer",
+  "description": "TDD-driven Java: JVM languages + jdtls, Spring Boot, backend & API architecture, database design, live docs, performance, testing, review + commit",
+  "marketplaces": {
+    "arkhe-claude-plugins": "joaquimscosta/arkhe-claude-plugins",
+    "claude-code-workflows": "wshobson/agents",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "context7@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official",
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
+    "jvm-languages@claude-code-workflows",
+    "jdtls-lsp@claude-plugins-official",
+    "spring-boot@arkhe-claude-plugins",
+    "backend-development@claude-code-workflows",
+    "database-design@claude-code-workflows"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "ruby-developer",
+  "extends": "dev-base",
+  "description": "TDD-driven Ruby: language dev + ruby-lsp, live docs, refactoring, performance, testing, review + commit workflows",
+  "marketplaces": {
+    "claude-code-workflows": "wshobson/agents"
+  },
+  "plugins": [
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
+    "web-scripting@claude-code-workflows",
+    "ruby-lsp@claude-plugins-official"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {}
+}

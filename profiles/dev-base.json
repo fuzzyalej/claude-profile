@@ -1,0 +1,23 @@
+{
+  "name": "dev-base",
+  "description": "Shared base for stack-specific dev profiles: spec-driven openpowers workflow (shape → spec → implement → deliver) orchestrating openspec + superpowers, live docs, code review and commit workflows. Compose language/stack plugins on top via \"extends\". Requires the openspec CLI (npm i -g openspec) — install it separately; it is not a plugin.",
+  "marketplaces": {
+    "superpowers-marketplace": "obra/superpowers-marketplace",
+    "diagon-alley": "fuzzyalej/diagon-alley",
+    "claude-plugins-official": "anthropics/claude-plugins-official"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "openpowers@diagon-alley",
+    "context7@claude-plugins-official",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  }
+}

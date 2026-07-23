@@ -1,0 +1,37 @@
+{
+  "name": "frontend",
+  "description": "Frontend design implementation: turn HTML designs + a design guide into working UI, with TypeScript/JS tooling, design-system extraction, accessibility, Figma, CSS, review, and live docs",
+  "marketplaces": {
+    "2389-research": "2389-research/claude-plugins",
+    "claude-code-workflows": "wshobson/agents",
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "diagon-alley": "fuzzyalej/diagon-alley",
+    "knowledge-work-plugins": "anthropics/knowledge-work-plugins",
+    "superpowers-marketplace": "obra/superpowers-marketplace"
+  },
+  "plugins": [
+    "superpowers@superpowers-marketplace",
+    "context7@claude-plugins-official",
+    "frontend-design@claude-plugins-official",
+    "typescript-lsp@claude-plugins-official",
+    "javascript-typescript@claude-code-workflows",
+    "ui-design@claude-code-workflows",
+    "accessibility-compliance@claude-code-workflows",
+    "design@knowledge-work-plugins",
+    "figma@claude-plugins-official",
+    "css-development@2389-research",
+    "design-extractor@diagon-alley",
+    "code-review@claude-plugins-official",
+    "commit-commands@claude-plugins-official"
+  ],
+  "pluginDirs": [],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}
