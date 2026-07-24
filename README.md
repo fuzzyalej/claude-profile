@@ -39,21 +39,43 @@ terminal with a different profile and the two don't interfere.
 
 ## Installing
 
+One command — no Rust toolchain needed. It downloads a prebuilt binary and puts it on your `PATH`:
+
 ```sh
 # macOS / Linux:
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profile-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.sh | sh
 
 # Windows PowerShell:
-irm https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profile-installer.ps1 | iex
+irm https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.ps1 | iex
 ```
 
-Or build from source:
+Then verify:
+
+```sh
+claude-profile --version
+```
+
+## Updating
+
+Re-run the same install command — it always fetches the latest release and replaces your binary in place:
+
+```sh
+# macOS / Linux:
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.sh | sh
+
+# Windows PowerShell:
+irm https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.ps1 | iex
+```
+
+<details>
+<summary>Build from source instead</summary>
 
 ```sh
 cargo install --path .
 # or
 cargo build --release   # then copy target/release/claude-profile onto your PATH
 ```
+</details>
 
 > **Tip:** `claude-profile` is a mouthful to type all day. Add `alias cpf=claude-profile` to
 > your shell. (We intentionally ship only the one binary name.)
