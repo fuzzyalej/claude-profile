@@ -44,7 +44,7 @@ Pick whichever fits your platform — all install the same `claude-profile` bina
 **macOS / Linux — Homebrew:**
 
 ```sh
-brew install fuzzyalej/tap/claude-profile
+brew install fuzzyalej/tap/claude-profiles
 ```
 
 **macOS / Linux — shell (no Homebrew, no Rust needed):**
@@ -76,7 +76,7 @@ claude-profile --version
 Update the same way you installed:
 
 ```sh
-brew upgrade claude-profile                 # Homebrew
+brew upgrade claude-profiles                # Homebrew
 
 curl -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.sh | sh   # shell (macOS/Linux) — re-run to get latest
 
