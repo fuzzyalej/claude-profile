@@ -39,14 +39,30 @@ terminal with a different profile and the two don't interfere.
 
 ## Installing
 
-One command — no Rust toolchain needed. It downloads a prebuilt binary and puts it on your `PATH`:
+Pick whichever fits your platform — all install the same `claude-profile` binary.
+
+**macOS / Linux — Homebrew:**
 
 ```sh
-# macOS / Linux:
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.sh | sh
+brew install fuzzyalej/tap/claude-profile
+```
 
-# Windows PowerShell:
+**macOS / Linux — shell (no Homebrew, no Rust needed):**
+
+```sh
+curl -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.sh | sh
+```
+
+**Windows — PowerShell:**
+
+```powershell
 irm https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.ps1 | iex
+```
+
+**Any platform with Rust — Cargo:**
+
+```sh
+cargo install claude-profiles
 ```
 
 Then verify:
@@ -57,14 +73,16 @@ claude-profile --version
 
 ## Updating
 
-Re-run the same install command — it always fetches the latest release and replaces your binary in place:
+Update the same way you installed:
 
 ```sh
-# macOS / Linux:
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.sh | sh
+brew upgrade claude-profile                 # Homebrew
 
-# Windows PowerShell:
-irm https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.ps1 | iex
+curl -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.sh | sh   # shell (macOS/Linux) — re-run to get latest
+
+irm https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.ps1 | iex        # Windows PowerShell — re-run to get latest
+
+cargo install claude-profiles              # Cargo — reinstalls the latest published version
 ```
 
 <details>
