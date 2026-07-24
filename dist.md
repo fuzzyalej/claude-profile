@@ -1,26 +1,46 @@
 Guide: all the distribution channels
 
-1. crates.io (cargo install)
+Status: crates.io, Homebrew, and the shell/PowerShell installers are all LIVE
+as of v0.4.2 (July 2026). Windows MSI/winget/Scoop and Linux packaging below
+remain future options.
 
-Repo-side, everything's ready (renamed package, dry-run verified). What's left is yours to do, since it needs your account:
+1. crates.io (cargo install) — LIVE
 
-cargo login          # paste the API token from https://crates.io/settings/tokens
-cargo publish
+Published as claude-profiles (installs the claude-profile binary). To ship a
+new version after bumping Cargo.toml and tagging the release:
 
-Users then run cargo install claude-profiles (installs the claude-profile binary). One thing to know: crates.io publishes are permanent — you can yank a bad version but never delete it, so this is worth doing deliberately, not as a rehearsal.
+cargo publish        # from the repo root; needs `cargo login` once with a token
+                     # from https://crates.io/settings/tokens
 
-2. Homebrew
+Note: crates.io publishes are permanent — you can yank a bad version but never
+delete it. Users install/update with `cargo install claude-profiles`.
 
-Your Cargo.toml already lists homebrew under installers, but I checked dist plan — there's no actual publish job configured, because cargo-dist needs a tap target to push a formula to. Right now installers = ["homebrew"] just means "the announcement text will mention brew install," not that it actually happens.
+2. Homebrew — LIVE
 
-To make it real:
-1. Create a new GitHub repo named homebrew-tap under fuzzyalej (Homebrew's naming convention for third-party taps).
-2. Add to Cargo.toml:
-tap = "fuzzyalej/homebrew-tap"
-3. Create a GitHub PAT (classic, repo scope) that can push to that tap repo, add it as a repository secret here named HOMEBREW_TAP_TOKEN.
-4. Run dist generate again — it'll wire up a real publish job in release.yml that pushes the formula on each release.
+Publishes automatically on each tagged release via the publish-homebrew-formula
+job in release.yml. Config that makes it work (already in Cargo.toml under
+[workspace.metadata.dist]):
 
-Then: brew tap fuzzyalej/tap && brew install claude-profile.
+  installers   = [..., "homebrew"]
+  tap          = "fuzzyalej/homebrew-tap"
+  publish-jobs = ["homebrew"]
+
+The job pushes Formula/claude-profiles.rb into the fuzzyalej/homebrew-tap repo
+using the HOMEBREW_TAP_TOKEN repo secret (a fine-grained PAT with Contents:
+read+write on the tap repo).
+
+Users install/update with:
+  brew install fuzzyalej/tap/claude-profiles
+  brew upgrade claude-profiles
+
+Reusing the tap for future tools: the same tap repo + token work for any other
+tool — point that project's dist config at tap = "fuzzyalej/homebrew-tap" and
+copy the HOMEBREW_TAP_TOKEN secret into its repo. Each project writes its own
+Formula/<name>.rb; they don't collide.
+
+Gotcha (learned the hard way): the tap repo must already have an initial commit
+(a main branch) before the first publish, or the job fails with "couldn't find
+remote ref refs/heads/main". Seed it with a README once.
 
 3. Windows
 
@@ -35,8 +55,9 @@ cargo-dist's installer kinds are actually shell, powershell, npm, homebrew, msi,
 - AUR (Arch) — a PKGBUILD referencing your release tarball, published to aur.archlinux.org. Needs an AUR account + SSH key, and you maintain it going forward (bumping pkgver per release, ideally scripted).
 - Nix — a flake.nix in-repo lets nix run github:fuzzyalej/claude-profile work with zero publishing step at all; submitting to nixpkgs proper is heavier and usually not worth it at this stage.
 
-Suggested order
+Suggested order for what's left
 
-Given effort vs. payoff: crates.io (you're one cargo publish away) → MSI (just a config flag) → Homebrew tap (needs a new repo + token, ~10 min) → .deb if you want a Linux artifact → winget/AUR only if you want maximum discoverability and are OK maintaining them long-term.
-
-Want me to wire up the MSI installer now (that one's fully local, no accounts needed)?
+crates.io, Homebrew, and shell/PowerShell are already live. Remaining options by
+effort vs. payoff: MSI (just a config flag) → .deb if you want a Linux artifact →
+winget/AUR/Scoop only if you want maximum discoverability and are OK maintaining
+them long-term.
