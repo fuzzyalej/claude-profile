@@ -47,9 +47,9 @@ pub fn check(source: &dyn ReleaseSource, owner: &str, repo: &str, current: &str)
 fn upgrade_hint(current_exe: &std::path::Path) -> &'static str {
     let path = current_exe.to_string_lossy();
     if path.contains("/.cargo/bin/") {
-        "cargo install claude-profile --force"
+        "cargo install claude-profiles --force"
     } else if path.contains("Cellar") || path.contains("homebrew") {
-        "brew upgrade claude-profile"
+        "brew upgrade claude-profiles"
     } else {
         "see https://github.com/fuzzyalej/claude-profile#installing for your install method"
     }

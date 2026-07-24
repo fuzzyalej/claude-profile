@@ -132,8 +132,8 @@ packs, or marketplaces (see `update profiles` below for that).
 - **Behavior:** compares the running version against the latest GitHub release tag
   (`fuzzyalej/claude-profile`). Prints `claude-profile <version> is up to date`, or
   `claude-profile <version> is available (you have <version>)` plus an upgrade command guessed
-  from the running executable's path (`cargo install claude-profile --force` under
-  `~/.cargo/bin/`, `brew upgrade claude-profile` under a Homebrew Cellar, otherwise a link to the
+  from the running executable's path (`cargo install claude-profiles --force` under
+  `~/.cargo/bin/`, `brew upgrade claude-profiles` under a Homebrew Cellar, otherwise a link to the
   README's install section). Network failures (including "no release published yet") are printed
   as a message rather than treated as a hard error.
 - **Never replaces the binary itself** — this is a check, not an installer. Re-run whichever
