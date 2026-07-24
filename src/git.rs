@@ -69,6 +69,16 @@ fn owner_repo_from_url(url: &str) -> Option<(String, String)> {
 pub trait GitCli {
     fn clone(&self, url: &str, dest: &Path) -> anyhow::Result<()>;
     fn pull(&self, repo: &Path) -> anyhow::Result<()>;
+    /// Advance a floating marketplace checkout to the tip of the remote's default
+    /// branch. SHA pinning (`checkout`) routinely leaves these checkouts in a
+    /// detached-HEAD state, so a plain `pull --ff-only` cannot fast-forward them
+    /// ("not currently on a branch"). This fetches `origin` and hard-resets HEAD to
+    /// `origin/HEAD` (the remote's default branch) instead, which works regardless
+    /// of the local branch/detached state. The default no-op is for test doubles
+    /// that don't model a remote.
+    fn advance_to_remote_head(&self, _repo: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn head_sha(&self, repo: &Path) -> anyhow::Result<String>;
     fn checkout(&self, repo: &Path, git_ref: &str) -> anyhow::Result<()>;
     /// Whether `repo` is a git checkout. Some marketplaces (e.g. the official
@@ -103,6 +113,11 @@ impl GitCli for RealGit {
     }
     fn pull(&self, repo: &Path) -> anyhow::Result<()> {
         self.run(&["pull", "--ff-only"], Some(repo)).map(|_| ())
+    }
+    fn advance_to_remote_head(&self, repo: &Path) -> anyhow::Result<()> {
+        self.run(&["fetch", "origin", "--quiet"], Some(repo))?;
+        self.run(&["reset", "--hard", "--quiet", "origin/HEAD"], Some(repo))?;
+        Ok(())
     }
     fn head_sha(&self, repo: &Path) -> anyhow::Result<String> {
         let out = self.run(&["rev-parse", "HEAD"], Some(repo))?;

@@ -246,27 +246,48 @@ pub fn pin_marketplaces<G: GitCli>(
     update_floating: bool,
 ) -> anyhow::Result<()> {
     for (name, source) in &profile.marketplaces {
-        let repo_ref = parse_repo_ref(source)?;
-        let dir = mkt_install_dir(name);
-
-        if !git.is_repo(&dir) {
-            eprintln!(
-                "WARNING: marketplace '{name}' at {} is not a git checkout; recording unpinned (not reproducible)",
-                dir.display()
-            );
-            lock.marketplaces
-                .insert(name.clone(), LockedMarketplace { source: source.clone(), sha: String::new() });
-            continue;
-        }
-
-        let target = checkout_target(update_floating, lock.marketplaces.get(name), &repo_ref.git_ref);
-        if let Some(ref t) = target {
-            git.checkout(&dir, t)?;
-        }
-        let sha = git.head_sha(&dir)?;
-        lock.marketplaces.insert(name.clone(), LockedMarketplace { source: source.clone(), sha });
+        let resolved = resolve_marketplace_sha(git, name, source, mkt_install_dir, lock, update_floating)?;
+        lock.marketplaces
+            .insert(name.clone(), LockedMarketplace { source: source.clone(), sha: resolved });
     }
     Ok(())
+}
+
+/// Resolve the commit SHA to lock for a single marketplace, advancing its checkout
+/// first if needed: floating marketplaces are pulled to the remote HEAD on `update`,
+/// pinned `#ref`s (or a previously-locked SHA) are checked out and left there. A
+/// marketplace that isn't a git checkout is recorded unpinned (empty SHA).
+fn resolve_marketplace_sha<G: GitCli>(
+    git: &G,
+    name: &str,
+    source: &str,
+    mkt_install_dir: &dyn Fn(&str) -> PathBuf,
+    lock: &Lockfile,
+    update_floating: bool,
+) -> anyhow::Result<String> {
+    let repo_ref = parse_repo_ref(source)?;
+    let dir = mkt_install_dir(name);
+
+    if !git.is_repo(&dir) {
+        eprintln!(
+            "WARNING: marketplace '{name}' at {} is not a git checkout; recording unpinned (not reproducible)",
+            dir.display()
+        );
+        return Ok(String::new());
+    }
+
+    let target = checkout_target(update_floating, lock.marketplaces.get(name), &repo_ref.git_ref);
+    if let Some(ref t) = target {
+        git.checkout(&dir, t)?;
+    } else if update_floating {
+        // Floating marketplace on `update`: advance the local checkout to the
+        // remote default-branch HEAD before recording its SHA. Without this,
+        // `head_sha` just re-reads whatever commit the checkout was first cloned
+        // at, so a floating marketplace would never move. (Explicit `#ref`s take
+        // the `checkout` branch above and are never advanced — they stay pinned.)
+        git.advance_to_remote_head(&dir)?;
+    }
+    git.head_sha(&dir)
 }
 
 #[cfg(test)]
@@ -280,6 +301,7 @@ mod tests {
     struct MockGit {
         cloned: RefCell<Vec<(String, PathBuf)>>,
         pulled: RefCell<Vec<PathBuf>>,
+        advanced: RefCell<Vec<PathBuf>>,
         checkouts: RefCell<Vec<(PathBuf, String)>>,
         head: String,
         present: bool,
@@ -288,11 +310,16 @@ mod tests {
         fn new(head: &str) -> Self {
             MockGit {
                 cloned: RefCell::new(vec![]), pulled: RefCell::new(vec![]),
+                advanced: RefCell::new(vec![]),
                 checkouts: RefCell::new(vec![]), head: head.into(), present: true,
             }
         }
     }
     impl GitCli for MockGit {
+        fn advance_to_remote_head(&self, r: &Path) -> anyhow::Result<()> {
+            self.advanced.borrow_mut().push(r.to_path_buf());
+            Ok(())
+        }
         fn clone(&self, url: &str, dest: &Path) -> anyhow::Result<()> {
             self.cloned.borrow_mut().push((url.to_string(), dest.to_path_buf()));
             fs::create_dir_all(dest)?;
@@ -562,6 +589,9 @@ mod tests {
         // floating + update_floating: no checkout to a pinned sha, record current head
         assert!(git.checkouts.borrow().is_empty());
         assert_eq!(lock.marketplaces.get("m").unwrap().sha, "new_head");
+        // the checkout must be advanced to the remote default-branch HEAD first,
+        // otherwise `head_sha` just re-reads the stale commit it was cloned at
+        assert_eq!(git.advanced.borrow().as_slice(), &[PathBuf::from("/mkts/m")]);
     }
 
     #[test]
@@ -609,6 +639,8 @@ mod tests {
         pin_marketplaces(&git, &profile, &dir, &mut lock, true).unwrap();
         // explicit ref stays pinned even when updating floating
         assert_eq!(git.checkouts.borrow()[0].1, "v3");
+        // pinned refs must never move: no fetch/reset that would advance the branch
+        assert!(git.advanced.borrow().is_empty());
     }
 
     #[test]
