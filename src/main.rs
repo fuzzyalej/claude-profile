@@ -14,7 +14,6 @@ mod profile;
 mod progress;
 mod provision;
 mod resolve;
-mod spinner;
 mod vendor;
 mod vendor_fs;
 
@@ -150,6 +149,7 @@ fn env_dir() -> Option<PathBuf> {
 
 fn run() -> anyhow::Result<i32> {
     let cli = Cli::parse();
+    let _progress = progress::install();
     let paths = fs_paths::Paths::detect()?;
     let cwd = std::env::current_dir()?;
     let bundled = bundled_dir();
@@ -405,17 +405,13 @@ fn provision_pin_launch(
     cwd: &std::path::Path,
     paths: &fs_paths::Paths,
 ) -> anyhow::Result<i32> {
-    // Not wrapped in a spinner: provision() may block on an interactive y/N
-    // confirmation prompt, which a steady-tick spinner would draw over.
     provision::provision(&git::RealGit, profile, key, cwd, paths, assume_yes)?;
 
     let mut lock = lock::Lockfile::load(lock_file)?.unwrap_or_else(|| lock::Lockfile::new(key));
     let dir_lookup = |n: &str| paths.marketplace_clone_dir(n);
     provision::pin_marketplaces(&git::RealGit, profile, &dir_lookup, &mut lock, false)?;
 
-    spinner::spin("vendoring plugins...", "vendored", || {
-        provision::vendor_plugins(&git::RealGit, profile, key, cwd, paths, false, &mut lock)
-    })?;
+    provision::vendor_plugins(&git::RealGit, profile, key, cwd, paths, false, &mut lock)?;
 
     if let Some(parent) = lock_file.parent() {
         std::fs::create_dir_all(parent)?;
@@ -423,6 +419,7 @@ fn provision_pin_launch(
     lock.save(lock_file)?;
 
     let args = launch::build_args(profile, key, paths, extra)?;
+    progress::clear();
     launch::spawn(key, &args)
 }
 

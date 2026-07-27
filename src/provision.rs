@@ -17,7 +17,9 @@ pub fn ensure_marketplace_clones<G: GitCli>(git: &G, profile: &Profile, paths: &
             continue;
         }
         let repo_ref = parse_repo_ref(source)?;
+        crate::progress::step(&format!("cloning marketplace {name}"));
         git.clone(&repo_ref.clone_url(), &dir)?;
+        crate::progress::done(&format!("cloned {name}"));
     }
     Ok(())
 }
@@ -34,7 +36,9 @@ pub fn vendor_plugins<G: GitCli>(
     force: bool,
     lock: &mut Lockfile,
 ) -> anyhow::Result<()> {
-    for plugin_id in &profile.plugins {
+    let total = profile.plugins.len();
+    let mut vendored = 0usize;
+    for (i, plugin_id) in profile.plugins.iter().enumerate() {
         let dest = paths.profile_vendor_dir(profile_key).join(plugin_id);
         if dest.exists() {
             if !force {
@@ -47,12 +51,16 @@ pub fn vendor_plugins<G: GitCli>(
             .rsplit_once('@')
             .ok_or_else(|| anyhow::anyhow!("plugin id '{plugin_id}' is missing '@marketplace'"))?;
 
+        crate::progress::step(&format!("vendoring {plugin_id} ({}/{total})", i + 1));
         if marketplace == "skills-dir" {
             vendor_loose_skill(name, cwd, paths, &dest)?;
-            continue;
+        } else {
+            vendor_marketplace_entry(git, paths, marketplace, name, plugin_id, force, &dest, lock)?;
         }
-
-        vendor_marketplace_entry(git, paths, marketplace, name, plugin_id, force, &dest, lock)?;
+        vendored += 1;
+    }
+    if vendored > 0 {
+        crate::progress::done(&format!("vendored {vendored} plugins"));
     }
     Ok(())
 }
@@ -211,7 +219,9 @@ pub fn provision<G: GitCli>(
         .collect();
 
     if !missing_marketplaces.is_empty() || !missing_plugins.is_empty() {
-        if !assume_yes && !confirm(profile, &missing_marketplaces, &missing_plugins) {
+        let approved = assume_yes
+            || crate::progress::suspend(|| confirm(profile, &missing_marketplaces, &missing_plugins));
+        if !approved {
             anyhow::bail!("provisioning declined by user");
         }
     }
@@ -340,6 +350,54 @@ mod tests {
 
     fn profile(json: &str) -> crate::profile::Profile {
         crate::profile::Profile::from_json_str(json).unwrap()
+    }
+
+    #[test]
+    fn reports_a_step_per_missing_marketplace_clone_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
+        // Pre-create m1's clone so only m2 is missing.
+        fs::create_dir_all(paths.marketplace_clone_dir("m1")).unwrap();
+        let p = profile(r#"{"name":"p","marketplaces":{"m1":"o/r","m2":"o/s"}}"#);
+        let git = MockGit::new("sha1");
+
+        let (rec, _g) = crate::progress::record();
+        ensure_marketplace_clones(&git, &p, &paths).unwrap();
+
+        assert_eq!(
+            rec.events().as_slice(),
+            &["step: cloning marketplace m2", "done: cloned m2"]
+        );
+    }
+
+    #[test]
+    fn reports_vendoring_progress_and_skips_already_vendored() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
+        let mkt_dir = paths.marketplace_clone_dir("m");
+        fs::create_dir_all(mkt_dir.join(".claude-plugin")).unwrap();
+        fs::write(
+            mkt_dir.join(".claude-plugin").join("marketplace.json"),
+            r#"{"plugins":[{"name":"a","source":"./a"},{"name":"b","source":"./b"}]}"#,
+        ).unwrap();
+        for name in ["a", "b"] {
+            fs::create_dir_all(mkt_dir.join(name)).unwrap();
+            fs::write(mkt_dir.join(name).join("f.txt"), "x").unwrap();
+        }
+        // a@m is already vendored, so only b@m should be reported.
+        fs::create_dir_all(paths.profile_vendor_dir("p").join("a@m")).unwrap();
+
+        let p = profile(r#"{"name":"p","marketplaces":{"m":"o/r"},"plugins":["a@m","b@m"]}"#);
+        let git = MockGit::new("sha1");
+        let mut lock = crate::lock::Lockfile::new("p");
+
+        let (rec, _g) = crate::progress::record();
+        vendor_plugins(&git, &p, "p", tmp.path(), &paths, false, &mut lock).unwrap();
+
+        assert_eq!(
+            rec.events().as_slice(),
+            &["step: vendoring b@m (2/2)", "done: vendored 1 plugins"]
+        );
     }
 
     #[test]
