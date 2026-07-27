@@ -21,6 +21,16 @@ Commands:
   help            Print this message or the help of the given subcommand(s)
 ```
 
+## Progress output
+
+Commands that clone, pull, fetch, or vendor report what they are doing while they work. On a
+terminal that is a spinner showing the current unit of work, with a `✓` line for each finished
+one. When stderr is not a terminal (piped, redirected, CI) the spinner is suppressed and only the
+completion lines are printed, unprefixed.
+
+All of it goes to **stderr** — stdout carries only command results, so `find --json`,
+`completions`, and `profile-names` stay safe to pipe.
+
 ## `claude-profile <profile>... [-- <extra>]`
 
 ```
@@ -155,7 +165,7 @@ in the CLI.
 
 - **Without `--frozen`:**
   1. Pulls every directory under `~/.claude-profiles/packs/` that is still a git checkout,
-     printing `updated pack <name>` for each. Packs installed profiles-only (the current
+     reporting `updated pack <name>` on stderr for each. Packs installed profiles-only (the current
      `install` behavior) have no `.git` and are skipped — re-run `install` to refresh them.
   2. For every discoverable profile (same search path as `list`), re-resolves each
      **floating** (unpinned/branch-tracking) marketplace to its current HEAD commit and

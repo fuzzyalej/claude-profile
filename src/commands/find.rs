@@ -35,6 +35,7 @@ pub fn run(
             eprintln!("no index found; syncing (this fetches marketplace manifests)…");
         }
         let r = index::sync(&git, paths)?;
+        crate::progress::clear();
         eprintln!(
             "indexed {} plugins from {} marketplaces ({} skipped)",
             r.plugins, r.marketplaces, r.skipped

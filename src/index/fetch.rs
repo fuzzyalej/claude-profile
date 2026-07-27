@@ -6,6 +6,7 @@ pub fn cache_dir_name(repo: &str) -> String {
 }
 
 pub fn manifest_json<G: GitCli>(git: &G, paths: &Paths, repo: &str) -> anyhow::Result<String> {
+    crate::progress::step(&format!("fetching {repo}"));
     let dest = paths.index_repos_dir().join(cache_dir_name(repo));
     let _ = std::fs::remove_dir_all(&dest);
     if let Some(parent) = dest.parent() {
@@ -43,6 +44,18 @@ mod tests {
     #[test]
     fn cache_dir_name_flattens_slash() {
         assert_eq!(cache_dir_name("owner/repo"), "owner--repo");
+    }
+
+    #[test]
+    fn manifest_json_reports_the_repo_being_fetched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
+        let git = FakeGit { calls: RefCell::new(vec![]) };
+
+        let (rec, _g) = crate::progress::record();
+        manifest_json(&git, &paths, "o/r").unwrap();
+
+        assert_eq!(rec.events().as_slice(), &["step: fetching o/r"]);
     }
 
     #[test]

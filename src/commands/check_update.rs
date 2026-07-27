@@ -57,7 +57,10 @@ fn upgrade_hint(current_exe: &std::path::Path) -> &'static str {
 
 pub fn run(current_exe: &std::path::Path) -> anyhow::Result<()> {
     let current = env!("CARGO_PKG_VERSION");
-    match check(&GitHubReleaseSource, "fuzzyalej", "claude-profile", current) {
+    crate::progress::step("checking for updates");
+    let result = check(&GitHubReleaseSource, "fuzzyalej", "claude-profile", current);
+    crate::progress::clear();
+    match result {
         Ok(v) if v.up_to_date => {
             println!("claude-profile {} is up to date", v.current);
         }
