@@ -271,6 +271,7 @@ fn handle_update(
             triples.push((name.clone(), profile, lf));
         }
         commands::update::frozen_check(&triples)?;
+        progress::clear();
         println!("--frozen: all locks up to date");
     } else {
         let total = profiles.len();

@@ -98,6 +98,7 @@ pub fn suspend<T>(f: impl FnOnce() -> T) -> T {
 
 struct SpinnerReporter {
     pb: ProgressBar,
+    started: std::cell::Cell<bool>,
 }
 
 impl SpinnerReporter {
@@ -109,13 +110,16 @@ impl SpinnerReporter {
                 .unwrap()
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
         );
-        pb.enable_steady_tick(Duration::from_millis(80));
-        Self { pb }
+        Self { pb, started: std::cell::Cell::new(false) }
     }
 }
 
 impl Reporter for SpinnerReporter {
     fn step(&self, msg: &str) {
+        if !self.started.get() {
+            self.pb.enable_steady_tick(Duration::from_millis(80));
+            self.started.set(true);
+        }
         self.pb.set_message(msg.to_string());
     }
     fn done(&self, msg: &str) {
@@ -227,6 +231,14 @@ mod tests {
         }
         step("outer");
         assert_eq!(outer.events().as_slice(), &["step: outer"]);
+    }
+
+    #[test]
+    fn spinner_does_not_tick_until_first_step() {
+        let r = SpinnerReporter::new();
+        assert!(!r.started.get());
+        r.step("go");
+        assert!(r.started.get());
     }
 
     #[test]
