@@ -273,7 +273,8 @@ fn handle_update(
         commands::update::frozen_check(&triples)?;
         println!("--frozen: all locks up to date");
     } else {
-        for (name, profile) in &profiles {
+        let total = profiles.len();
+        for (i, (name, profile)) in profiles.iter().enumerate() {
             let Some(profile) = resolve_extends_or_warn(name, profile, paths, cwd, env, bundled) else { continue };
             let missing = profile.marketplaces.keys().find(|mkt| !paths.marketplace_clone_dir(mkt).is_dir());
             if let Some(mkt) = missing {
@@ -285,8 +286,14 @@ fn handle_update(
             let resolved = resolve::resolve(name, paths, cwd, env, bundled)?;
             let lp = lock::lock_path(name, &resolved.path, &resolved.source, paths);
             let mut lf = lock::Lockfile::load(&lp)?.unwrap_or_else(|| lock::Lockfile::new(name));
+            progress::step(&format!("re-resolving {name} ({}/{total})", i + 1));
             commands::update::reresolve_profile(&git::RealGit, &profile, name, cwd, paths, &dir_lookup, &mut lf)?;
             lf.save(&lp)?;
+            progress::done(&format!(
+                "{name} — {} marketplaces, {} plugins",
+                profile.marketplaces.len(),
+                profile.plugins.len()
+            ));
         }
     }
     Ok(())
