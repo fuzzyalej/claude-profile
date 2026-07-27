@@ -290,10 +290,12 @@ fn handle_update(
             progress::step(&format!("re-resolving {name} ({}/{total})", i + 1));
             commands::update::reresolve_profile(&git::RealGit, &profile, name, cwd, paths, &dir_lookup, &mut lf)?;
             lf.save(&lp)?;
+            let mkt_count = profile.marketplaces.len();
+            let plugin_count = profile.plugins.len();
+            let mkt_plural = if mkt_count == 1 { "marketplace" } else { "marketplaces" };
+            let plugin_plural = if plugin_count == 1 { "plugin" } else { "plugins" };
             progress::done(&format!(
-                "{name} — {} marketplaces, {} plugins",
-                profile.marketplaces.len(),
-                profile.plugins.len()
+                "{name} — {mkt_count} {mkt_plural}, {plugin_count} {plugin_plural}"
             ));
         }
     }
