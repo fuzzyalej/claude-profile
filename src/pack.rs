@@ -56,9 +56,11 @@ fn materialize_profiles(src: &Path, dest: &Path, spec: &str) -> anyhow::Result<(
 /// `~/.claude-profiles/packs/owner--repo/`. The rest of the repo is discarded.
 pub fn install_pack<G: GitCli>(git: &G, spec: &str, paths: &Paths) -> anyhow::Result<PathBuf> {
     let repo_ref = parse_repo_ref(spec)?;
+    crate::progress::step(&format!("cloning {spec}"));
     let (_tmp, src) = fetch_ephemeral(git, spec)?;
     let dest = packs_dir(paths).join(repo_ref.pack_dir_name());
     materialize_profiles(&src, &dest, spec)?;
+    crate::progress::done(&format!("installed pack {}", repo_ref.pack_dir_name()));
     Ok(dest)
 }
 
@@ -83,8 +85,11 @@ pub fn update_all_packs<G: GitCli>(git: &G, paths: &Paths) -> anyhow::Result<Vec
             // Packs are stored profiles-only (no `.git`), so there's nothing to pull.
             // Skip anything that isn't a git checkout rather than erroring.
             if entry.path().is_dir() && git.is_repo(&entry.path()) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                crate::progress::step(&format!("pulling pack {name}"));
                 git.pull(&entry.path())?;
-                updated.push(entry.file_name().to_string_lossy().to_string());
+                crate::progress::done(&format!("updated pack {name}"));
+                updated.push(name);
             }
         }
     }
@@ -236,6 +241,38 @@ mod tests {
         updated.sort();
         assert_eq!(git.pulled.borrow().len(), 2);
         assert_eq!(updated, vec!["a--b".to_string(), "c--d".to_string()]);
+    }
+
+    #[test]
+    fn update_all_packs_reports_each_pull() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
+        fs::create_dir_all(paths.user_profiles_dir().join("packs").join("o--r")).unwrap();
+        let git = MockGit { cloned: RefCell::new(vec![]), pulled: RefCell::new(vec![]), checkouts: RefCell::new(vec![]) };
+
+        let (rec, _g) = crate::progress::record();
+        let updated = update_all_packs(&git, &paths).unwrap();
+
+        assert_eq!(updated, vec!["o--r".to_string()]);
+        assert_eq!(
+            rec.events().as_slice(),
+            &["step: pulling pack o--r", "done: updated pack o--r"]
+        );
+    }
+
+    #[test]
+    fn install_pack_reports_clone_and_install() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = crate::fs_paths::Paths::from_home(tmp.path().to_path_buf());
+        let git = MockGit { cloned: RefCell::new(vec![]), pulled: RefCell::new(vec![]), checkouts: RefCell::new(vec![]) };
+
+        let (rec, _g) = crate::progress::record();
+        install_pack(&git, "o/r", &paths).unwrap();
+
+        assert_eq!(
+            rec.events().as_slice(),
+            &["step: cloning o/r", "done: installed pack o--r"]
+        );
     }
 
     #[test]

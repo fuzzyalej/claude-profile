@@ -179,6 +179,7 @@ fn dispatch_command(
         }
         Command::Install { spec } => {
             let dir = pack::install_pack(&git::RealGit, &spec, paths)?;
+            progress::clear();
             println!("installed pack at {}", dir.display());
             Ok(0)
         }
@@ -254,8 +255,7 @@ fn handle_update(
     env: Option<&std::path::Path>,
     bundled: &std::path::Path,
 ) -> anyhow::Result<()> {
-    let updated = pack::update_all_packs(&git::RealGit, paths)?;
-    for name in &updated { println!("updated pack {name}"); }
+    pack::update_all_packs(&git::RealGit, paths)?;
     let (profiles, failed) = load_all_profiles(paths, cwd, env, bundled);
     for (path, err) in &failed {
         eprintln!("warning: skipping unparseable profile {}: {err}", path.display());
