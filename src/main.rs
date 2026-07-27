@@ -11,6 +11,7 @@ mod launch;
 mod lock;
 mod pack;
 mod profile;
+mod progress;
 mod provision;
 mod resolve;
 mod spinner;
