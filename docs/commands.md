@@ -29,7 +29,7 @@ one. When stderr is not a terminal (piped, redirected, CI) the spinner is suppre
 completion lines are printed, unprefixed.
 
 All of it goes to **stderr** — stdout carries only command results, so `find --json`,
-`completions`, and `profile-names` stay safe to pipe.
+`completions`, `profile-names`, and `statusline-render` stay safe to pipe.
 
 ## `claude-profile <profile>... [-- <extra>]`
 

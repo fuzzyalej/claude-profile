@@ -77,6 +77,9 @@ pub fn fetch_ephemeral<G: GitCli>(git: &G, spec: &str) -> anyhow::Result<(tempfi
     Ok((tmp, dest))
 }
 
+// The caller (`main::handle_update`) no longer prints these names — it reports
+// `updated pack <name>` progress lines itself, and re-adding a `for name in &updated
+// { println!(...) }` loop would double-print. Only tests read this return value now.
 pub fn update_all_packs<G: GitCli>(git: &G, paths: &Paths) -> anyhow::Result<Vec<String>> {
     let mut updated = Vec::new();
     let dir = packs_dir(paths);

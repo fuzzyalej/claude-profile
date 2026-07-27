@@ -38,6 +38,7 @@ fn active() -> Option<Rc<dyn Reporter>> {
 /// Uninstalls the reporter it was created with, restoring whatever was active
 /// before, and finishes the outgoing reporter so no half-drawn spinner line is
 /// left in front of a later `error:` message.
+#[must_use = "dropping this immediately uninstalls the reporter; bind it, e.g. `let _progress = progress::install();`"]
 pub struct Guard {
     previous: Option<Rc<dyn Reporter>>,
 }
@@ -97,40 +98,60 @@ pub fn suspend<T>(f: impl FnOnce() -> T) -> T {
 }
 
 struct SpinnerReporter {
-    pb: ProgressBar,
+    // RefCell so `finish` can swap in a fresh bar: indicatif's `finish_and_clear`
+    // is a one-way latch (Status::DoneHidden) that never draws again, so the
+    // only way to report through this reporter after a `clear()` is to replace
+    // the bar entirely.
+    pb: RefCell<ProgressBar>,
     started: std::cell::Cell<bool>,
 }
 
 impl SpinnerReporter {
-    fn new() -> Self {
-        // ProgressBar::new_spinner draws to stderr by default, which is what we want.
+    // ProgressBar::new_spinner draws to stderr by default, which is what we want.
+    // Kept as one helper so the style is defined in exactly one place.
+    fn new_bar() -> ProgressBar {
         let pb = ProgressBar::new_spinner();
         pb.set_style(
             ProgressStyle::with_template("{spinner:.cyan} {msg}")
                 .unwrap()
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
         );
-        Self { pb, started: std::cell::Cell::new(false) }
+        pb
+    }
+
+    fn new() -> Self {
+        Self { pb: RefCell::new(Self::new_bar()), started: std::cell::Cell::new(false) }
+    }
+}
+
+#[cfg(test)]
+impl SpinnerReporter {
+    fn is_finished(&self) -> bool {
+        self.pb.borrow().is_finished()
     }
 }
 
 impl Reporter for SpinnerReporter {
     fn step(&self, msg: &str) {
         if !self.started.get() {
-            self.pb.enable_steady_tick(Duration::from_millis(80));
+            self.pb.borrow().enable_steady_tick(Duration::from_millis(80));
             self.started.set(true);
         }
-        self.pb.set_message(msg.to_string());
+        self.pb.borrow().set_message(msg.to_string());
     }
     fn done(&self, msg: &str) {
         // println on the bar prints above the live spinner instead of over it.
-        self.pb.println(format!("✓ {msg}"));
+        self.pb.borrow().println(format!("✓ {msg}"));
     }
     fn suspend(&self, f: &mut dyn FnMut()) {
-        self.pb.suspend(f);
+        self.pb.borrow().suspend(f);
     }
     fn finish(&self) {
-        self.pb.finish_and_clear();
+        self.pb.borrow().finish_and_clear();
+        // Replace the now-terminal bar with a fresh one so a later `step()`
+        // can re-enable the steady tick instead of drawing over a dead bar.
+        *self.pb.borrow_mut() = Self::new_bar();
+        self.started.set(false);
     }
 }
 
@@ -239,6 +260,15 @@ mod tests {
         assert!(!r.started.get());
         r.step("go");
         assert!(r.started.get());
+    }
+
+    #[test]
+    fn finish_resets_the_spinner_for_later_steps() {
+        let r = SpinnerReporter::new();
+        r.step("a");
+        r.finish();
+        r.step("b");
+        assert!(!r.is_finished());
     }
 
     #[test]

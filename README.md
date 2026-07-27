@@ -178,7 +178,7 @@ Design specs and implementation plans behind notable features in `claude-profile
 
 - [Vendored plugin/skill isolation](docs/superpowers/specs/2026-07-15-vendored-plugin-isolation-design.md) ([plan](docs/superpowers/plans/2026-07-15-vendored-plugin-isolation.md)) — why provisioning copies plugins into a private vendor tree instead of installing into `~/.claude`.
 - [Cross-marketplace plugin finder](docs/superpowers/specs/2026-07-11-plugin-finder-design.md) ([plan](docs/superpowers/plans/2026-07-11-plugin-finder.md)) — the offline index behind `claude-profile find`.
-- [Install/remove progress spinner](docs/superpowers/specs/2026-07-14-install-spinner-design.md) ([plan](docs/superpowers/plans/2026-07-14-install-spinner.md)) — the provisioning UX shown during vendoring.
+- [Install/remove progress spinner](docs/superpowers/specs/2026-07-14-install-spinner-design.md) ([plan](docs/superpowers/plans/2026-07-14-install-spinner.md)) — superseded; describes the original standalone `src/spinner.rs` module, since removed and replaced by the ambient reporter in `src/progress.rs`.
 
 ## License
 

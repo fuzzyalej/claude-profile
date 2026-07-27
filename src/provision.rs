@@ -60,7 +60,8 @@ pub fn vendor_plugins<G: GitCli>(
         vendored += 1;
     }
     if vendored > 0 {
-        crate::progress::done(&format!("vendored {vendored} plugins"));
+        let plural = if vendored == 1 { "plugin" } else { "plugins" };
+        crate::progress::done(&format!("vendored {vendored} {plural}"));
     }
     Ok(())
 }
@@ -396,7 +397,7 @@ mod tests {
 
         assert_eq!(
             rec.events().as_slice(),
-            &["step: vendoring b@m (2/2)", "done: vendored 1 plugins"]
+            &["step: vendoring b@m (2/2)", "done: vendored 1 plugin"]
         );
     }
 
