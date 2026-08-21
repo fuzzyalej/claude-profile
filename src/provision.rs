@@ -4,6 +4,7 @@ use crate::lock::{Lockfile, LockedMarketplace};
 use crate::profile::Profile;
 use crate::vendor::{self, PluginSource};
 use crate::vendor_fs;
+use anyhow::Context;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -18,7 +19,9 @@ pub fn ensure_marketplace_clones<G: GitCli>(git: &G, profile: &Profile, paths: &
         }
         let repo_ref = parse_repo_ref(source)?;
         crate::progress::step(&format!("cloning marketplace {name}"));
-        git.clone(&repo_ref.clone_url(), &dir)?;
+        git.clone(&repo_ref.clone_url(), &dir).with_context(|| {
+            format!("cloning marketplace '{name}' from {} into {}", repo_ref.clone_url(), dir.display())
+        })?;
         crate::progress::done(&format!("cloned {name}"));
     }
     Ok(())
@@ -121,9 +124,13 @@ fn vendor_external_repo<G: GitCli>(
     let repo_ref = parse_repo_ref(repo)?;
     let ext_dir = paths.external_marketplace_dir(&repo_ref.owner, &repo_ref.repo);
     if !ext_dir.is_dir() {
-        git.clone(&repo_ref.clone_url(), &ext_dir)?;
+        git.clone(&repo_ref.clone_url(), &ext_dir).with_context(|| {
+            format!("cloning plugin '{plugin_id}' from {} into {}", repo_ref.clone_url(), ext_dir.display())
+        })?;
     } else if force {
-        git.pull(&ext_dir)?;
+        git.pull(&ext_dir).with_context(|| {
+            format!("pulling plugin '{plugin_id}' ({repo}) at {}", ext_dir.display())
+        })?;
     }
     let sha = git.head_sha(&ext_dir)?;
     lock.plugins.insert(plugin_id.to_string(), LockedMarketplace { source: repo.to_string(), sha });
@@ -151,12 +158,18 @@ fn vendor_git_subdir<G: GitCli>(
     let repo_ref = parse_repo_ref(url)?;
     let ext_dir = paths.external_marketplace_dir(&repo_ref.owner, &repo_ref.repo);
     if !ext_dir.is_dir() {
-        git.clone(&repo_ref.clone_url(), &ext_dir)?;
+        git.clone(&repo_ref.clone_url(), &ext_dir).with_context(|| {
+            format!("cloning plugin '{plugin_id}' from {} into {}", repo_ref.clone_url(), ext_dir.display())
+        })?;
     } else if force {
-        git.pull(&ext_dir)?;
+        git.pull(&ext_dir).with_context(|| {
+            format!("pulling plugin '{plugin_id}' ({url}) at {}", ext_dir.display())
+        })?;
     }
     if let Some(target) = pinned_sha.or(git_ref) {
-        git.checkout(&ext_dir, target)?;
+        git.checkout(&ext_dir, target).with_context(|| {
+            format!("checking out '{target}' for plugin '{plugin_id}' at {}", ext_dir.display())
+        })?;
     }
     let sha = git.head_sha(&ext_dir)?;
     lock.plugins.insert(plugin_id.to_string(), LockedMarketplace { source: url.to_string(), sha });
@@ -289,16 +302,21 @@ fn resolve_marketplace_sha<G: GitCli>(
 
     let target = checkout_target(update_floating, lock.marketplaces.get(name), &repo_ref.git_ref);
     if let Some(ref t) = target {
-        git.checkout(&dir, t)?;
+        git.checkout(&dir, t).with_context(|| {
+            format!("checking out '{t}' for marketplace '{name}' ({source}) at {}", dir.display())
+        })?;
     } else if update_floating {
         // Floating marketplace on `update`: advance the local checkout to the
         // remote default-branch HEAD before recording its SHA. Without this,
         // `head_sha` just re-reads whatever commit the checkout was first cloned
         // at, so a floating marketplace would never move. (Explicit `#ref`s take
         // the `checkout` branch above and are never advanced — they stay pinned.)
-        git.advance_to_remote_head(&dir)?;
+        git.advance_to_remote_head(&dir).with_context(|| {
+            format!("advancing floating marketplace '{name}' ({source}) at {}", dir.display())
+        })?;
     }
     git.head_sha(&dir)
+        .with_context(|| format!("reading HEAD of marketplace '{name}' at {}", dir.display()))
 }
 
 #[cfg(test)]

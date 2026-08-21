@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -288,7 +289,8 @@ fn handle_update(
             let lp = lock::lock_path(name, &resolved.path, &resolved.source, paths);
             let mut lf = lock::Lockfile::load(&lp)?.unwrap_or_else(|| lock::Lockfile::new(name));
             progress::step(&format!("re-resolving {name} ({}/{total})", i + 1));
-            commands::update::reresolve_profile(&git::RealGit, &profile, name, cwd, paths, &dir_lookup, &mut lf)?;
+            commands::update::reresolve_profile(&git::RealGit, &profile, name, cwd, paths, &dir_lookup, &mut lf)
+                .with_context(|| format!("updating profile '{name}'"))?;
             lf.save(&lp)?;
             let mkt_count = profile.marketplaces.len();
             let plugin_count = profile.plugins.len();
@@ -415,13 +417,16 @@ fn provision_pin_launch(
     cwd: &std::path::Path,
     paths: &fs_paths::Paths,
 ) -> anyhow::Result<i32> {
-    provision::provision(&git::RealGit, profile, key, cwd, paths, assume_yes)?;
+    provision::provision(&git::RealGit, profile, key, cwd, paths, assume_yes)
+        .with_context(|| format!("provisioning profile '{key}'"))?;
 
     let mut lock = lock::Lockfile::load(lock_file)?.unwrap_or_else(|| lock::Lockfile::new(key));
     let dir_lookup = |n: &str| paths.marketplace_clone_dir(n);
-    provision::pin_marketplaces(&git::RealGit, profile, &dir_lookup, &mut lock, false)?;
+    provision::pin_marketplaces(&git::RealGit, profile, &dir_lookup, &mut lock, false)
+        .with_context(|| format!("pinning marketplaces for profile '{key}'"))?;
 
-    provision::vendor_plugins(&git::RealGit, profile, key, cwd, paths, false, &mut lock)?;
+    provision::vendor_plugins(&git::RealGit, profile, key, cwd, paths, false, &mut lock)
+        .with_context(|| format!("vendoring plugins for profile '{key}'"))?;
 
     if let Some(parent) = lock_file.parent() {
         std::fs::create_dir_all(parent)?;
