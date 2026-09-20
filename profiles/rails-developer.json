@@ -1,6 +1,6 @@
 {
   "name": "rails-developer",
-  "description": "TDD-driven Ruby on Rails: Ruby dev + ruby-lsp, backend & API architecture, database design, live Rails docs, performance, testing, review + commit",
+  "description": "TDD-driven Ruby on Rails: Ruby dev + ruby-lsp, backend & API architecture, database design, live Rails docs, performance, testing, Sentry error monitoring, review + commit",
   "marketplaces": {
     "claude-code-workflows": "wshobson/agents",
     "claude-plugins-official": "anthropics/claude-plugins-official",
@@ -18,7 +18,8 @@
     "web-scripting@claude-code-workflows",
     "ruby-lsp@claude-plugins-official",
     "backend-development@claude-code-workflows",
-    "database-design@claude-code-workflows"
+    "database-design@claude-code-workflows",
+    "sentry@claude-plugins-official"
   ],
   "pluginDirs": [],
   "mcpServers": {
