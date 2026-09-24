@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 mod combine;
 mod commands;
+mod exe;
 mod extends;
 mod fs_paths;
 mod git;

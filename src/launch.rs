@@ -1,6 +1,5 @@
 use crate::fs_paths::Paths;
 use crate::profile::Profile;
-use std::process::Command;
 
 pub fn build_args(
     profile: &Profile,
@@ -45,7 +44,7 @@ pub fn build_args(
 }
 
 pub fn spawn(profile_name: &str, args: &[String]) -> anyhow::Result<i32> {
-    let status = Command::new("claude")
+    let status = crate::exe::command("claude")
         .args(args)
         .env("CLAUDE_PROFILE", profile_name)
         .status()

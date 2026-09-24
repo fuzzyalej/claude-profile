@@ -1,5 +1,3 @@
-use std::process::Command;
-
 pub fn build_eval_args(target: &str, json: bool, extra: &[String]) -> Vec<String> {
     let mut args = vec!["plugin".to_string(), "eval".to_string(), target.to_string()];
     if json {
@@ -11,7 +9,7 @@ pub fn build_eval_args(target: &str, json: bool, extra: &[String]) -> Vec<String
 
 pub fn run(target: &str, json: bool, extra: &[String]) -> anyhow::Result<i32> {
     let args = build_eval_args(target, json, extra);
-    let status = Command::new("claude").args(&args).status()
+    let status = crate::exe::command("claude").args(&args).status()
         .map_err(|e| anyhow::anyhow!("failed to run claude plugin eval: {e}"))?;
     Ok(status.code().unwrap_or(1))
 }

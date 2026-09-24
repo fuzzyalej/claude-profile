@@ -1,4 +1,15 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
+
+// HOME first so Git Bash/MSYS sessions and test overrides keep working; USERPROFILE is
+// what plain PowerShell and cmd.exe on Windows provide.
+pub fn home_from(home: Option<OsString>, userprofile: Option<OsString>) -> Option<PathBuf> {
+    [home, userprofile]
+        .into_iter()
+        .flatten()
+        .find(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
 
 pub struct Paths {
     pub home: PathBuf,
@@ -10,9 +21,8 @@ impl Paths {
     }
 
     pub fn detect() -> anyhow::Result<Paths> {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .ok_or_else(|| anyhow::anyhow!("HOME is not set"))?;
+        let home = home_from(std::env::var_os("HOME"), std::env::var_os("USERPROFILE"))
+            .ok_or_else(|| anyhow::anyhow!("cannot find your home directory: set HOME or USERPROFILE"))?;
         Ok(Paths::from_home(home))
     }
 
@@ -76,6 +86,28 @@ impl Paths {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn home_prefers_home_over_userprofile() {
+        let got = home_from(Some("/home/a".into()), Some(r"C:\Users\a".into()));
+        assert_eq!(got, Some(PathBuf::from("/home/a")));
+    }
+
+    #[test]
+    fn home_falls_back_to_userprofile() {
+        assert_eq!(home_from(None, Some(r"C:\Users\a".into())), Some(PathBuf::from(r"C:\Users\a")));
+    }
+
+    #[test]
+    fn empty_home_falls_back_to_userprofile() {
+        assert_eq!(home_from(Some("".into()), Some(r"C:\Users\a".into())), Some(PathBuf::from(r"C:\Users\a")));
+    }
+
+    #[test]
+    fn no_home_at_all_is_none() {
+        assert_eq!(home_from(None, None), None);
+        assert_eq!(home_from(Some("".into()), Some("".into())), None);
+    }
 
     #[test]
     fn derives_paths_from_home() {

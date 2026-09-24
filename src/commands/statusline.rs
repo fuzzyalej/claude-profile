@@ -169,11 +169,9 @@ pub fn render_line(profile_name: Option<&str>, color_enabled: bool, wrapped_outp
 
 pub fn run_wrapped_command(command: &str, stdin_bytes: &[u8]) -> anyhow::Result<Option<String>> {
     use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
-    let mut child = Command::new("sh")
-        .arg("-c")
-        .arg(command)
+    let mut child = crate::exe::shell_command(command)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
