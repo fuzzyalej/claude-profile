@@ -350,6 +350,14 @@ duplicates the line):
 | `bash`       | `~/.claude-profiles/completions/claude-profile.bash`         | `~/.bashrc`                       |
 | `zsh`        | `~/.claude-profiles/completions/claude-profile.zsh`           | `~/.zshrc`                        |
 | `fish`       | `~/.config/fish/completions/claude-profile.fish`              | none — fish autoloads this dir    |
-| `powershell` | `~/.claude-profiles/completions/claude-profile.ps1`           | `Documents/PowerShell/Microsoft.PowerShell_profile.ps1` |
+| `powershell` | `~/.claude-profiles/completions/claude-profile.ps1`           | `$PROFILE` of each installed PowerShell |
 
 Restart the shell (or source the startup file / run `. $PROFILE` in PowerShell) to pick it up.
+
+For PowerShell, `--install` asks each installed edition (`pwsh` for PowerShell 7 and
+`powershell` for Windows PowerShell 5.1) for its `$PROFILE` path, and adds the line to every
+profile it finds. That path already accounts for a Documents folder that OneDrive has moved, and
+for `pwsh` on macOS and Linux. If neither edition responds, `--install` uses
+`Documents/PowerShell/Microsoft.PowerShell_profile.ps1` in your home directory. A new profile
+file is saved as UTF-8 with a byte order mark, so Windows PowerShell 5.1 reads non-ASCII user
+names in the path correctly.

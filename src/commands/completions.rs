@@ -1,6 +1,6 @@
 use crate::fs_paths::Paths;
 use clap::ValueEnum;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lower")]
@@ -16,9 +16,10 @@ pub enum Shell {
 /// take effect.
 pub struct InstallPlan {
     pub script_path: PathBuf,
-    /// `(rc_file, line_to_ensure)` — `None` when the shell autoloads scripts from
-    /// `script_path`'s directory (fish) and no rc edit is needed.
-    pub rc_line: Option<(PathBuf, String)>,
+    /// `(rc_file, line_to_ensure)` pairs — empty when the shell autoloads scripts from
+    /// `script_path`'s directory (fish) and no rc edit is needed. PowerShell can have
+    /// several entries: one per installed edition (PowerShell 7 and Windows PowerShell 5.1).
+    pub rc_lines: Vec<(PathBuf, String)>,
 }
 
 pub fn script(shell: Shell) -> String {
@@ -30,43 +31,87 @@ pub fn script(shell: Shell) -> String {
     }
 }
 
-pub fn install_plan(shell: Shell, paths: &Paths) -> InstallPlan {
+fn install_plan_with(shell: Shell, paths: &Paths, powershell_profiles: &dyn Fn() -> Vec<PathBuf>) -> InstallPlan {
     let completions_dir = paths.user_profiles_dir().join("completions");
     match shell {
         Shell::Bash => InstallPlan {
             script_path: completions_dir.join("claude-profile.bash"),
-            rc_line: Some((
+            rc_lines: vec![(
                 paths.home.join(".bashrc"),
                 format!("source {}", completions_dir.join("claude-profile.bash").display()),
-            )),
+            )],
         },
         Shell::Zsh => InstallPlan {
             script_path: completions_dir.join("claude-profile.zsh"),
-            rc_line: Some((
+            rc_lines: vec![(
                 paths.home.join(".zshrc"),
                 format!("source {}", completions_dir.join("claude-profile.zsh").display()),
-            )),
+            )],
         },
         Shell::Fish => InstallPlan {
             // fish autoloads any *.fish file placed here — no rc edit needed.
             script_path: paths.home.join(".config/fish/completions/claude-profile.fish"),
-            rc_line: None,
+            rc_lines: Vec::new(),
         },
-        Shell::Powershell => InstallPlan {
-            script_path: completions_dir.join("claude-profile.ps1"),
-            rc_line: Some((
-                powershell_profile_path(paths),
-                format!(". {}", completions_dir.join("claude-profile.ps1").display()),
-            )),
-        },
+        Shell::Powershell => {
+            let script_path = completions_dir.join("claude-profile.ps1");
+            let line = powershell_dot_source_line(&script_path);
+            let mut profiles = powershell_profiles();
+            if profiles.is_empty() {
+                profiles.push(fallback_powershell_profile(paths));
+            }
+            InstallPlan {
+                script_path,
+                rc_lines: profiles.into_iter().map(|p| (p, line.clone())).collect(),
+            }
+        }
     }
 }
 
-fn powershell_profile_path(paths: &Paths) -> PathBuf {
-    // Windows PowerShell / PowerShell 7 default profile location. HOME is set on
-    // Windows too (git-bash/MSYS environments export it); this is a best-effort
-    // default and the printed rc_line can always be added manually instead.
-    paths.home.join("Documents/PowerShell/Microsoft.PowerShell_profile.ps1")
+fn powershell_dot_source_line(script_path: &Path) -> String {
+    format!(". '{}'", script_path.display().to_string().replace('\'', "''"))
+}
+
+// Used only when no PowerShell executable answers: the PowerShell 7 default on Windows.
+fn fallback_powershell_profile(paths: &Paths) -> PathBuf {
+    paths.home.join("Documents").join("PowerShell").join("Microsoft.PowerShell_profile.ps1")
+}
+
+// Ask each installed edition for its own `$PROFILE`, which already accounts for a
+// OneDrive-redirected Documents folder and for `pwsh` on macOS/Linux. Output is forced
+// to UTF-8 because Windows PowerShell 5.1 otherwise prints in the OEM code page.
+fn detect_powershell_profiles() -> Vec<PathBuf> {
+    const QUERY: &str = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $PROFILE";
+    let mut found = Vec::new();
+    for exe in ["pwsh", "powershell"] {
+        let output = crate::exe::command(exe)
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", QUERY])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output();
+        let Ok(output) = output else { continue };
+        if !output.status.success() {
+            continue;
+        }
+        if let Some(path) = parse_profile_output(&output.stdout) {
+            if !found.contains(&path) {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
+fn parse_profile_output(stdout: &[u8]) -> Option<PathBuf> {
+    let text = String::from_utf8_lossy(stdout);
+    let line = text.trim_start_matches('\u{feff}').lines().map(str::trim).find(|l| !l.is_empty())?;
+    looks_absolute(line).then(|| PathBuf::from(line))
+}
+
+fn looks_absolute(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let drive = bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'\\' | b'/');
+    drive || line.starts_with('/') || line.starts_with("\\\\")
 }
 
 const MARKER: &str = "# added by `claude-profile completions --install`";
@@ -74,14 +119,20 @@ const MARKER: &str = "# added by `claude-profile completions --install`";
 /// Writes the completion script and, if the shell needs it, ensures the rc file
 /// sources it (idempotent — skips if the line is already present).
 pub fn install(shell: Shell, paths: &Paths) -> anyhow::Result<InstallPlan> {
-    let plan = install_plan(shell, paths);
+    install_with(shell, paths, &detect_powershell_profiles)
+}
+
+fn install_with(shell: Shell, paths: &Paths, powershell_profiles: &dyn Fn() -> Vec<PathBuf>) -> anyhow::Result<InstallPlan> {
+    let plan = install_plan_with(shell, paths, powershell_profiles);
     if let Some(parent) = plan.script_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&plan.script_path, script(shell))?;
 
-    if let Some((rc_file, line)) = &plan.rc_line {
-        let existing = std::fs::read_to_string(rc_file).unwrap_or_default();
+    for (rc_file, line) in &plan.rc_lines {
+        let existing = std::fs::read_to_string(rc_file).ok();
+        let is_new = existing.is_none();
+        let existing = existing.unwrap_or_default();
         if !existing.contains(line.as_str()) {
             if let Some(parent) = rc_file.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -89,6 +140,11 @@ pub fn install(shell: Shell, paths: &Paths) -> anyhow::Result<InstallPlan> {
             let mut updated = existing;
             if !updated.is_empty() && !updated.ends_with('\n') {
                 updated.push('\n');
+            }
+            // Windows PowerShell 5.1 reads a BOM-less script as ANSI, which garbles a
+            // non-ASCII user name in the dot-sourced path.
+            if is_new && shell == Shell::Powershell {
+                updated.push('\u{feff}');
             }
             updated.push_str(MARKER);
             updated.push('\n');
@@ -107,12 +163,16 @@ pub fn run(shell: Shell, install_flag: bool, paths: &Paths) -> anyhow::Result<()
     }
     let plan = install(shell, paths)?;
     println!("wrote completion script: {}", plan.script_path.display());
-    match &plan.rc_line {
-        Some((rc_file, line)) => {
-            println!("ensured {} sources it (line: `{line}`)", rc_file.display());
-            println!("restart your shell (or `source {}`) to pick it up", rc_file.display());
-        }
-        None => println!("fish loads completions from this directory automatically — restart fish to pick it up"),
+    if plan.rc_lines.is_empty() {
+        println!("fish loads completions from this directory automatically — restart fish to pick it up");
+    }
+    for (rc_file, line) in &plan.rc_lines {
+        println!("ensured {} sources it (line: `{line}`)", rc_file.display());
+    }
+    if shell == Shell::Powershell {
+        println!("restart PowerShell (or run `. $PROFILE`) to pick it up");
+    } else if let Some((rc_file, _)) = plan.rc_lines.first() {
+        println!("restart your shell (or `source {}`) to pick it up", rc_file.display());
     }
     Ok(())
 }
@@ -182,7 +242,9 @@ Register-ArgumentCompleter -Native -CommandName claude-profile -ScriptBlock {
     $subcommands = 'list','show','install','update','status','remove','new','test','find','self-uninstall','completions','statusline'
     $tokens = $commandAst.CommandElements | ForEach-Object { $_.ToString() }
 
-    $candidates = if ($tokens.Count -le 2) {
+    $position = if ($wordToComplete -eq '') { $tokens.Count } else { $tokens.Count - 1 }
+
+    $candidates = if ($position -le 1) {
         $subcommands + (& claude-profile profile-names 2>$null)
     } elseif ($tokens[1] -in @('show', 'remove')) {
         & claude-profile profile-names 2>$null
@@ -218,10 +280,73 @@ mod tests {
     #[test]
     fn bash_and_zsh_and_powershell_need_an_rc_line_fish_does_not() {
         let paths = Paths::from_home(PathBuf::from("/h"));
-        assert!(install_plan(Shell::Bash, &paths).rc_line.is_some());
-        assert!(install_plan(Shell::Zsh, &paths).rc_line.is_some());
-        assert!(install_plan(Shell::Powershell, &paths).rc_line.is_some());
-        assert!(install_plan(Shell::Fish, &paths).rc_line.is_none());
+        assert_eq!(install_plan_with(Shell::Bash, &paths, &Vec::new).rc_lines.len(), 1);
+        assert_eq!(install_plan_with(Shell::Zsh, &paths, &Vec::new).rc_lines.len(), 1);
+        assert!(!install_plan_with(Shell::Powershell, &paths, &Vec::new).rc_lines.is_empty());
+        assert!(install_plan_with(Shell::Fish, &paths, &Vec::new).rc_lines.is_empty());
+    }
+
+    #[test]
+    fn powershell_wires_every_detected_profile() {
+        let paths = Paths::from_home(PathBuf::from("/h"));
+        let seven = PathBuf::from("/docs/PowerShell/Microsoft.PowerShell_profile.ps1");
+        let five = PathBuf::from("/docs/WindowsPowerShell/Microsoft.PowerShell_profile.ps1");
+        let detected = vec![seven.clone(), five.clone()];
+        let plan = install_plan_with(Shell::Powershell, &paths, &|| detected.clone());
+        let files: Vec<_> = plan.rc_lines.iter().map(|(f, _)| f.clone()).collect();
+        assert_eq!(files, vec![seven, five]);
+    }
+
+    #[test]
+    fn powershell_falls_back_to_documents_when_nothing_detected() {
+        let paths = Paths::from_home(PathBuf::from("/h"));
+        let plan = install_plan_with(Shell::Powershell, &paths, &Vec::new);
+        assert_eq!(
+            plan.rc_lines[0].0,
+            PathBuf::from("/h/Documents/PowerShell/Microsoft.PowerShell_profile.ps1")
+        );
+    }
+
+    #[test]
+    fn powershell_line_quotes_the_script_path() {
+        assert_eq!(
+            powershell_dot_source_line(Path::new("/Users/Ann O'Neil/c.ps1")),
+            ". '/Users/Ann O''Neil/c.ps1'"
+        );
+    }
+
+    #[test]
+    fn parses_profile_path_from_powershell_output() {
+        assert_eq!(
+            parse_profile_output("\u{feff}C:\\Users\\Åse\\OneDrive\\Dokumenter\\PowerShell\\p.ps1\r\n".as_bytes()),
+            Some(PathBuf::from("C:\\Users\\Åse\\OneDrive\\Dokumenter\\PowerShell\\p.ps1"))
+        );
+        assert_eq!(
+            parse_profile_output(b"/home/a/.config/powershell/Microsoft.PowerShell_profile.ps1\n"),
+            Some(PathBuf::from("/home/a/.config/powershell/Microsoft.PowerShell_profile.ps1"))
+        );
+        assert_eq!(parse_profile_output(b""), None);
+        assert_eq!(parse_profile_output(b"not a path\n"), None);
+    }
+
+    #[test]
+    fn powershell_install_writes_bom_only_for_a_new_profile() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_home(tmp.path().to_path_buf());
+        let fresh = tmp.path().join("fresh").join("profile.ps1");
+        let existing = tmp.path().join("existing.ps1");
+        std::fs::write(&existing, "Set-Alias g git\n").unwrap();
+        let detected = vec![fresh.clone(), existing.clone()];
+
+        install_with(Shell::Powershell, &paths, &|| detected.clone()).unwrap();
+        let fresh_text = std::fs::read_to_string(&fresh).unwrap();
+        let existing_text = std::fs::read_to_string(&existing).unwrap();
+        assert!(fresh_text.starts_with("\u{feff}# added by"));
+        assert!(existing_text.starts_with("Set-Alias g git\n"));
+        assert!(existing_text.contains("claude-profile.ps1"));
+
+        install_with(Shell::Powershell, &paths, &|| detected.clone()).unwrap();
+        assert_eq!(std::fs::read_to_string(&fresh).unwrap().matches("claude-profile.ps1").count(), 1);
     }
 
     #[test]
@@ -258,6 +383,6 @@ mod tests {
         let paths = Paths::from_home(tmp.path().to_path_buf());
         let plan = install(Shell::Fish, &paths).unwrap();
         assert!(plan.script_path.exists());
-        assert!(plan.rc_line.is_none());
+        assert!(plan.rc_lines.is_empty());
     }
 }
