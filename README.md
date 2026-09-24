@@ -59,6 +59,8 @@ curl -LsSf https://github.com/fuzzyalej/claude-profile/releases/latest/download/
 irm https://github.com/fuzzyalej/claude-profile/releases/latest/download/claude-profiles-installer.ps1 | iex
 ```
 
+See [Before you start on Windows](#before-you-start-on-windows) for prerequisites.
+
 **Any platform with Rust — Cargo:**
 
 ```sh
@@ -70,6 +72,38 @@ Then verify:
 ```sh
 claude-profile --version
 ```
+
+### Before you start on Windows
+
+`claude-profile` runs in PowerShell, Command Prompt, Windows Terminal, and Git Bash. Before you
+launch a profile, make sure you have the following:
+
+- **Git for Windows.** `claude-profile` uses `git` to fetch marketplaces and profile repos. Git
+  for Windows also includes `sh.exe`, which runs an existing statusline command. To install it,
+  run `winget install --id Git.Git -e`.
+- **Claude Code, with `claude` on your `PATH`.** Both the native installer (`claude.exe`) and an
+  npm install (`claude.cmd`) work.
+
+To check both, open a new terminal and run:
+
+```powershell
+git --version
+claude --version
+```
+
+If either command isn't found, install the missing tool, and then open a new terminal so it
+picks up the updated `PATH`.
+
+Good to know:
+
+- Profiles and vendored plugins are stored in `%USERPROFILE%\.claude-profiles`. If `HOME` is
+  set, as it is in Git Bash, `claude-profile` uses `%HOME%\.claude-profiles` instead. Use the
+  same shell type each time, so all your sessions see the same profiles.
+- If you installed Git in a custom location, set `CLAUDE_CODE_GIT_BASH_PATH` to the full path of
+  `bash.exe` or `sh.exe`. Claude Code reads the same variable. If no shell is found, the statusline
+  command runs through `cmd /C` instead.
+- `claude-profile completions powershell --install` adds completion to the `$PROFILE` of every
+  PowerShell edition you have installed, PowerShell 7 and Windows PowerShell 5.1 alike.
 
 ## Updating
 
