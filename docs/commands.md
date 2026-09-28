@@ -273,9 +273,15 @@ Searches a local, offline index of plugins across many marketplaces and prints r
 profile-ready `plugin@marketplace` ids, each with its marketplace's source repo
 (`owner/repo`) — copy-paste-ready for a profile's `plugins` and `marketplaces` fields.
 
-- **Behavior:** `<QUERY>` words are joined and matched against each indexed plugin's name,
-  description, and category (metadata only — it does not search skill file bodies). If no
-  index exists yet, the first run syncs automatically before searching; every later run
+- **Behavior:** `<QUERY>` words are matched against each indexed plugin's name, description,
+  and category (metadata only — it does not search skill file bodies). Matching is
+  case-insensitive and anchored to word starts: a term matches at the beginning of a word or
+  after a separator (`-`, `_`, `.`, space), so `rails` finds `ultra-rails-skills` but not
+  `guardrails`. A term still matches a longer word it begins (`test` finds `testing`).
+  Multi-word queries are AND: an entry is returned only if every term matches somewhere, and
+  entries matching more terms, and matching them in the name rather than the description,
+  rank higher. If no index exists yet, the first run syncs automatically before searching;
+  every later run
   searches the cached index offline unless `--sync` is given. Running `find` with `--sync` or
   `--refresh-seeds` and no query just rebuilds the index without searching.
 - `--sync`: rebuilds the index now, fetching each seed marketplace's manifest over the
