@@ -1,34 +1,26 @@
 {
   "name": "rails-developer",
-  "description": "TDD-driven Ruby on Rails: Ruby dev + ruby-lsp, backend & API architecture, database design, live Rails docs, performance, testing, Sentry error monitoring, review + commit",
+  "extends": "dev-base",
+  "description": "TDD-driven Ruby on Rails: layered architecture analysis and review, ActiveRecord patterns, Minitest/test-unit references, ruby-lsp, backend & API architecture, database design, performance profiling, refactoring, debugging, Sentry error monitoring. Combine with rails-hyperdrive for live introspection of a running app.",
   "marketplaces": {
     "claude-code-workflows": "wshobson/agents",
-    "claude-plugins-official": "anthropics/claude-plugins-official",
-    "superpowers-marketplace": "obra/superpowers-marketplace"
+    "layered-rails-skills": "palkan/layered-rails-skills",
+    "ruby-skills": "st0012/ruby-skills",
+    "claude-ruby-marketplace": "hoblin/claude-ruby-marketplace"
   },
   "plugins": [
-    "superpowers@superpowers-marketplace",
-    "context7@claude-plugins-official",
-    "code-review@claude-plugins-official",
-    "commit-commands@claude-plugins-official",
-    "code-refactoring@claude-code-workflows",
-    "performance-testing-review@claude-code-workflows",
-    "application-performance@claude-code-workflows",
-    "debugging-toolkit@claude-code-workflows",
-    "web-scripting@claude-code-workflows",
+    "layered-rails@layered-rails-skills",
+    "ruby-skills@ruby-skills",
+    "activerecord@claude-ruby-marketplace",
     "ruby-lsp@claude-plugins-official",
     "backend-development@claude-code-workflows",
     "database-design@claude-code-workflows",
+    "application-performance@claude-code-workflows",
+    "code-refactoring@claude-code-workflows",
+    "performance-testing-review@claude-code-workflows",
+    "debugging-toolkit@claude-code-workflows",
     "sentry@claude-plugins-official"
   ],
   "pluginDirs": [],
-  "mcpServers": {
-    "context7": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@upstash/context7-mcp"
-      ]
-    }
-  }
+  "mcpServers": {}
 }

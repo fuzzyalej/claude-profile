@@ -56,7 +56,9 @@ into the session.
 
 The engine ships richer reference profiles under `profiles/` for many stacks (Rust, Python,
 Go, Java, .NET, Ruby, Rails, TypeScript, Angular, Vue, React, plus a Tauri-based
-`rust-desktop-developer` and a `frontend` design-implementation profile). Most of these
+`rust-desktop-developer` and a `frontend` design-implementation profile, plus the
+MCP-only `rails-hyperdrive` add-on meant to be launched *alongside* `rails-developer`).
+Most of these
 `extend` a shared `dev-base` profile — the spec-driven `openpowers`/`superpowers` workflow,
 live docs (`context7`), code review, and commit plugins — and layer a language server plus
 backend/database/performance/testing plugins on top (see

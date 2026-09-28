@@ -1,0 +1,13 @@
+{
+  "name": "rails-hyperdrive",
+  "description": "MCP add-on: live introspection of a running Rails app through Rails Hyperdrive (run_ruby, run_sql, tail_logs, list_models, list_routes, locate_source, lookup_doc, describe_app). Requires the app to have rails-hyperdrive installed (bundle add rails-hyperdrive --group=development && bin/rails hyperdrive:init) and a server on port 3000. Launch it alongside another profile: claude-profile rails-developer rails-hyperdrive",
+  "marketplaces": {},
+  "plugins": [],
+  "pluginDirs": [],
+  "mcpServers": {
+    "hyperdrive": {
+      "type": "http",
+      "url": "http://localhost:3000/_hyperdrive/mcp"
+    }
+  }
+}
