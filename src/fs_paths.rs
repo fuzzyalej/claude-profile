@@ -30,6 +30,11 @@ impl Paths {
         self.home.join(".claude-profiles")
     }
 
+    // Engine-managed copy of the profiles shipped with the binary; seeded on first run.
+    pub fn bundled_profiles_dir(&self) -> PathBuf {
+        self.user_profiles_dir().join("bundled")
+    }
+
     pub fn claude_skills_dir(&self) -> PathBuf {
         self.home.join(".claude").join("skills")
     }
@@ -116,6 +121,12 @@ mod tests {
         assert_eq!(p.claude_skills_dir(), PathBuf::from("/h/.claude/skills"));
         assert_eq!(p.claude_settings_path(), PathBuf::from("/h/.claude/settings.json"));
         assert_eq!(p.locks_dir(), PathBuf::from("/h/.claude-profiles/locks"));
+    }
+
+    #[test]
+    fn derives_bundled_profiles_dir() {
+        let p = Paths::from_home(PathBuf::from("/h"));
+        assert_eq!(p.bundled_profiles_dir(), PathBuf::from("/h/.claude-profiles/bundled"));
     }
 
     #[test]

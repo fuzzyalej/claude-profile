@@ -2,6 +2,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+mod bundled;
 mod combine;
 mod commands;
 mod exe;
@@ -139,12 +140,6 @@ fn load_all_profiles(
     (out, failed)
 }
 
-fn bundled_dir() -> PathBuf {
-    // profiles/ holds the reference profiles shipped with the engine; resolved relative to
-    // CARGO_MANIFEST_DIR at build time.
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("profiles")
-}
-
 fn env_dir() -> Option<PathBuf> {
     std::env::var_os("CLAUDE_PROFILE_DIR").map(PathBuf::from)
 }
@@ -154,7 +149,10 @@ fn run() -> anyhow::Result<i32> {
     let _progress = progress::install();
     let paths = fs_paths::Paths::detect()?;
     let cwd = std::env::current_dir()?;
-    let bundled = bundled_dir();
+    let bundled = paths.bundled_profiles_dir();
+    if let Err(e) = bundled::seed(&bundled, env!("CARGO_PKG_VERSION")) {
+        eprintln!("warning: could not refresh bundled profiles in {}: {e}", bundled.display());
+    }
     let env = env_dir();
 
     match cli.command {

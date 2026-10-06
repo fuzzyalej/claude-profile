@@ -21,10 +21,14 @@ To find candidate plugins to add, use [`find`](commands.md#find).
 4. `~/.claude-profiles/<name>.json` (personal profiles).
 5. `~/.claude-profiles/packs/<owner--repo>/profiles/<name>.json`, one candidate per installed
    pack (see [`install`](commands.md#install)).
-6. The engine's own bundled `profiles/<name>.json`: reference profiles shipped with
+6. `~/.claude-profiles/bundled/<name>.json`: the reference profiles shipped with
    `claude-profile` itself (e.g. `rust-developer`, `python-developer`, `react-developer`).
-   This directory is resolved relative to the engine, not your current directory, so it is
-   distinct from the project-local `./profiles/` in step 2.
+   They are baked into the binary and written to this directory on the first run after
+   install or upgrade.
+
+`~/.claude-profiles/bundled/` belongs to the engine: every upgrade rewrites it and deletes
+profiles that are no longer shipped. To customize a bundled profile, copy it up one level
+into `~/.claude-profiles/`, where step 4 takes precedence over step 6.
 
 `claude-profile list` shows every profile it can find across all of these locations and where
 each one came from.
