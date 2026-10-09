@@ -5,6 +5,7 @@ use std::path::PathBuf;
 mod bundled;
 mod combine;
 mod commands;
+mod coord;
 mod exe;
 mod extends;
 mod fs_paths;
@@ -108,6 +109,38 @@ enum Command {
     /// `statusLine` command installed by `statusline install` — not for direct use.
     #[command(hide = true, name = "statusline-render")]
     StatuslineRender,
+    /// Launch a coordinator session that can delegate tasks to worker sessions.
+    Coordinate {
+        /// Profile name(s) for the coordinator session.
+        profiles: Vec<String>,
+        /// Skip the provisioning confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+        /// Maximum number of workers running at once. Extra spawns queue.
+        #[arg(long, default_value_t = 4)]
+        max_workers: usize,
+        /// Run workers headless even inside Herdr.
+        #[arg(long)]
+        headless: bool,
+        /// Extra args forwarded to claude after `--`.
+        #[arg(last = true)]
+        extra: Vec<String>,
+    },
+    /// List coordinator runs, or remove finished workers' worktrees and finished runs' state.
+    Runs {
+        /// Remove the worktrees, branches, and state of runs that are no longer active.
+        #[arg(long)]
+        clean: bool,
+        /// Limit --clean to one run.
+        run_id: Option<String>,
+    },
+    /// (hidden) Serve the worker MCP tools for a coordinate run over stdio. Started by
+    /// Claude Code from the coordinator's MCP config — not for direct use.
+    #[command(hide = true, name = "workers-mcp")]
+    WorkersMcp {
+        #[arg(long)]
+        run: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -218,6 +251,12 @@ fn dispatch_command(
             print!("{}", commands::statusline::render(paths, cwd));
             Ok(0)
         }
+        Command::Coordinate { profiles, yes, max_workers, headless, extra } => {
+            let opts = commands::coordinate::Options { profiles, yes, max_workers, headless, extra };
+            commands::coordinate::run(&opts, paths, cwd, env, bundled)
+        }
+        Command::Runs { clean, run_id } => commands::runs::run(paths, clean, run_id.as_deref()),
+        Command::WorkersMcp { run } => commands::coordinate::serve_workers(&run, paths, env, bundled),
     }
 }
 
@@ -324,8 +363,7 @@ fn resolve_extends_or_warn(
     }
 }
 
-/// Dispatch a launch: no args prints help, one arg launches a single profile (with the
-/// owner/repo sugar), several launch a combined session.
+/// Dispatch a launch: no args prints help, otherwise resolve the target(s) and launch.
 fn handle_launch(
     names: &[String],
     assume_yes: bool,
@@ -335,19 +373,50 @@ fn handle_launch(
     env: Option<&std::path::Path>,
     bundled: &std::path::Path,
 ) -> anyhow::Result<i32> {
+    if names.is_empty() {
+        use clap::CommandFactory;
+        Cli::command().print_help()?;
+        println!();
+        return Ok(0);
+    }
+    let target = resolve_launch(names, paths, cwd, env, bundled)?;
+    provision_pin_launch(&target.profile, &target.key, &target.lock_file, assume_yes, extra, cwd, paths)
+}
+
+/// A launch target ready for provisioning: the effective profile, its key, and its lockfile.
+pub(crate) struct LaunchTarget {
+    pub(crate) profile: profile::Profile,
+    pub(crate) key: String,
+    pub(crate) lock_file: PathBuf,
+}
+
+/// Resolve one profile (with the owner/repo sugar) or several (merged into a combined
+/// profile with a lockfile under `~/.claude-profiles/locks/`).
+pub(crate) fn resolve_launch(
+    names: &[String],
+    paths: &fs_paths::Paths,
+    cwd: &std::path::Path,
+    env: Option<&std::path::Path>,
+    bundled: &std::path::Path,
+) -> anyhow::Result<LaunchTarget> {
     match names {
-        [] => {
-            use clap::CommandFactory;
-            Cli::command().print_help()?;
-            println!();
-            Ok(0)
-        }
+        [] => anyhow::bail!("no profile names given"),
         [name] => {
             let one = resolve_one(name, paths, cwd, env, bundled)?;
             let lock_file = lock::lock_path(&one.key, &one.path, &one.source, paths);
-            provision_pin_launch(&one.profile, &one.key, &lock_file, assume_yes, extra, cwd, paths)
+            Ok(LaunchTarget { profile: one.profile, key: one.key, lock_file })
         }
-        _ => launch_combined(names, assume_yes, extra, paths, cwd, env, bundled),
+        _ => {
+            let mut resolved = Vec::new();
+            for name in names {
+                let t = resolve_one(name, paths, cwd, env, bundled)?;
+                resolved.push((t.key, t.profile));
+            }
+            let combined = combine::combine_profiles(&resolved)?;
+            let key = combined.name.clone();
+            let lock_file = paths.locks_dir().join(format!("{key}.lock"));
+            Ok(LaunchTarget { profile: combined, key, lock_file })
+        }
     }
 }
 
@@ -382,31 +451,8 @@ fn resolve_one(
     Ok(ResolvedTarget { key, profile, path, source })
 }
 
-/// Resolve several targets, merge them into one effective profile, and launch it with a
-/// combined lockfile under `~/.claude-profiles/locks/`.
-fn launch_combined(
-    names: &[String],
-    assume_yes: bool,
-    extra: &[String],
-    paths: &fs_paths::Paths,
-    cwd: &std::path::Path,
-    env: Option<&std::path::Path>,
-    bundled: &std::path::Path,
-) -> anyhow::Result<i32> {
-    let mut resolved = Vec::new();
-    for name in names {
-        let t = resolve_one(name, paths, cwd, env, bundled)?;
-        resolved.push((t.key, t.profile));
-    }
-    let combined = combine::combine_profiles(&resolved)?;
-    let key = combined.name.clone();
-    let lock_file = paths.locks_dir().join(format!("{key}.lock"));
-    provision_pin_launch(&combined, &key, &lock_file, assume_yes, extra, cwd, paths)
-}
-
-/// Shared launch tail: provision the profile (cloning marketplaces / prompting as needed),
-/// pin its marketplaces into `lock_file`, vendor plugins against the pinned checkout, then
-/// spawn `claude` for the session with the vendored plugin dirs.
+/// Shared launch tail: provision and pin the profile, then spawn `claude` for the session
+/// with the vendored plugin dirs.
 fn provision_pin_launch(
     profile: &profile::Profile,
     key: &str,
@@ -416,6 +462,35 @@ fn provision_pin_launch(
     cwd: &std::path::Path,
     paths: &fs_paths::Paths,
 ) -> anyhow::Result<i32> {
+    provision_and_pin(profile, key, lock_file, assume_yes, cwd, paths)?;
+    let args = launch::build_args(profile, key, paths, extra)?;
+    progress::clear();
+    launch::spawn(key, &args)
+}
+
+/// Resolve the named profiles and provision and pin them without launching, so a later
+/// `claude-profile <names> --yes` starts without first-launch work.
+pub(crate) fn prepare_profiles(
+    names: &[String],
+    cwd: &std::path::Path,
+    paths: &fs_paths::Paths,
+    env: Option<&std::path::Path>,
+    bundled: &std::path::Path,
+) -> anyhow::Result<()> {
+    let target = resolve_launch(names, paths, cwd, env, bundled)?;
+    provision_and_pin(&target.profile, &target.key, &target.lock_file, true, cwd, paths)
+}
+
+/// Provision the profile (cloning marketplaces / prompting as needed), pin its marketplaces
+/// into `lock_file`, and vendor plugins against the pinned checkout.
+fn provision_and_pin(
+    profile: &profile::Profile,
+    key: &str,
+    lock_file: &std::path::Path,
+    assume_yes: bool,
+    cwd: &std::path::Path,
+    paths: &fs_paths::Paths,
+) -> anyhow::Result<()> {
     provision::provision(&git::RealGit, profile, key, cwd, paths, assume_yes)
         .with_context(|| format!("provisioning profile '{key}'"))?;
 
@@ -430,11 +505,7 @@ fn provision_pin_launch(
     if let Some(parent) = lock_file.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    lock.save(lock_file)?;
-
-    let args = launch::build_args(profile, key, paths, extra)?;
-    progress::clear();
-    launch::spawn(key, &args)
+    lock.save(lock_file)
 }
 
 fn main() {
@@ -444,5 +515,55 @@ fn main() {
             eprintln!("error: {e:#}");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_profiles(dir: &std::path::Path, names: &[&str]) {
+        for n in names {
+            std::fs::write(dir.join(format!("{n}.json")), format!("{{\"name\": \"{n}\"}}")).unwrap();
+        }
+    }
+
+    #[test]
+    fn resolve_launch_combines_two_profiles() {
+        let home = tempfile::tempdir().unwrap();
+        let env = tempfile::tempdir().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        write_profiles(env.path(), &["a", "b"]);
+        let paths = fs_paths::Paths::from_home(home.path().to_path_buf());
+        let names = vec!["a".to_string(), "b".to_string()];
+        let target =
+            resolve_launch(&names, &paths, cwd.path(), Some(env.path()), &paths.bundled_profiles_dir()).unwrap();
+        let a = profile::Profile::from_json_str(r#"{"name": "a"}"#).unwrap();
+        let b = profile::Profile::from_json_str(r#"{"name": "b"}"#).unwrap();
+        let combined = combine::combine_profiles(&[("a".into(), a), ("b".into(), b)]).unwrap();
+        assert_eq!(target.key, combined.name);
+        assert_eq!(target.lock_file, paths.locks_dir().join(format!("{}.lock", target.key)));
+    }
+
+    #[test]
+    fn resolve_launch_single_uses_profile_lock() {
+        let home = tempfile::tempdir().unwrap();
+        let env = tempfile::tempdir().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        write_profiles(env.path(), &["a"]);
+        let paths = fs_paths::Paths::from_home(home.path().to_path_buf());
+        let names = vec!["a".to_string()];
+        let target =
+            resolve_launch(&names, &paths, cwd.path(), Some(env.path()), &paths.bundled_profiles_dir()).unwrap();
+        assert_eq!(target.key, "a");
+        assert_eq!(target.profile.name, "a");
+    }
+
+    #[test]
+    fn resolve_launch_rejects_empty_names() {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        let paths = fs_paths::Paths::from_home(home.path().to_path_buf());
+        assert!(resolve_launch(&[], &paths, cwd.path(), None, &paths.bundled_profiles_dir()).is_err());
     }
 }

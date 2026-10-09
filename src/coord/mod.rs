@@ -1,0 +1,9 @@
+pub mod backend;
+pub mod headless;
+pub mod herdr;
+pub mod manager;
+pub mod mcp;
+pub mod perm;
+pub mod plugin;
+pub mod state;
+pub mod worktree;

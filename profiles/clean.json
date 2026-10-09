@@ -1,0 +1,8 @@
+{
+  "name": "clean",
+  "description": "Plain Claude Code: no extra plugins, skills or MCP servers",
+  "marketplaces": {},
+  "plugins": [],
+  "pluginDirs": [],
+  "mcpServers": {}
+}

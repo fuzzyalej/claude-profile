@@ -10,7 +10,8 @@ matter for using the tool.
 Running `claude-profile <profile> [-- extra claude args]` does, in order:
 
 1. **Resolve.** Find `<profile>.json` via the search path described in
-   [profiles.md](profiles.md#where-profiles-live).
+   [profiles.md](profiles.md#where-profiles-live). The search path ends with the
+   [bundled profiles](profiles.md#bundled-profiles) that ship inside the binary.
 2. **Vendor.** For each marketplace/plugin/skill the profile references that
    isn't already vendored for this profile, show a confirmation prompt
    naming what will be cloned/copied (`--yes` skips this prompt). Nothing
@@ -26,8 +27,9 @@ Running `claude-profile <profile> [-- extra claude args]` does, in order:
    [--bare]`, forwarding anything after `--` and proxying the child's exit
    code back to the caller.
 
-Nothing is ever written to your real `~/.claude/settings.json`, `~/.claude/plugins`,
-or `~/.claude/skills`. Every plugin and skill a profile uses lives under
+Provisioning and launching never write to your real `~/.claude/settings.json`,
+`~/.claude/plugins`, or `~/.claude/skills`. Only `claude-profile statusline install` edits
+`settings.json`. Every plugin and skill a profile uses lives under
 `~/.claude-profiles/store/<profile>/vendor/`, a directory claude-profile fully
 owns.
 
@@ -93,7 +95,42 @@ In practice, a profile installed today and a profile installed from the same JSO
 months from now resolve to identical plugin code, until someone runs
 `claude-profile update profiles` to advance the floating pins.
 
+## Coordinator and workers
+
+`claude-profile coordinate` adds three pieces to a normal launch. See
+[Coordinate many sessions](coordinate.md) for how to use them.
+
+- **MCP server.** `coordinate` registers a `claude-profile-workers` server in the coordinator's
+  MCP config. The server is `claude-profile workers-mcp --run <run-id>`, which Claude Code
+  starts over stdio. It exposes seven tools: `list_profiles`, `spawn`, `status`, `result`,
+  `send`, `cancel`, and `cleanup`.
+- **Backends.** The server starts workers through a backend. The Herdr backend opens each
+  worker in its own background tab in the coordinator's workspace. The headless backend runs each worker as a
+  background process and passes its task on stdin. `coordinate` picks Herdr when
+  `HERDR_ENV=1` and `HERDR_PANE_ID` are set and `--headless` is absent. If a Herdr pane is
+  gone, `send` falls back to the headless backend. Before either backend starts a worker, the
+  server provisions the worker's profiles, so workers never provision at the same time.
+- **Coordinator plugin.** A bundled plugin with the `coordinating-workers` skill is written to
+  `~/.claude-profiles/bundled-plugins/` and loaded as a plugin directory. The skill teaches
+  the coordinator how to split work, write tasks, poll, and merge.
+
+Each run has a state directory, `~/.claude-profiles/runs/<run-id>/`. It holds `run.json` (the
+working directory, repo root, backend, concurrency limit, and permission flags) and one
+subdirectory per worker with its status and `result.json`. The server reads and writes this
+state, so `claude-profile runs` can list and clean runs after the coordinator exits. While it
+runs, the server holds a lock on `server.lock` in the run directory, which marks the run as
+active.
+
+Each worker is a normal `claude-profile` launch with the run directory added through
+`--add-dir`, so it can write its result file. On macOS and Linux, `claude-profile` replaces
+itself with `claude` when it launches, so stopping a worker stops `claude`. On Windows, each
+headless worker runs in a Job object that is terminated when the worker stops. Worktrees live
+under `~/.claude-profiles/worktrees/`. Workers get the same permission flags as the
+coordinator had at launch, and no other forwarded arguments. They load your global
+`CLAUDE.md`, hooks, and memory like any profiled session.
+
 ## Further reading
 
 - [Authoring profiles](profiles.md): the full field reference and worked example.
 - [Command reference](commands.md): every command's exact flags and behavior.
+- [Coordinate many sessions](coordinate.md): run workers from a coordinator session.

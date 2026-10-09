@@ -7,6 +7,7 @@ profiles.
 
 - [Authoring profiles](profiles.md) — the profile JSON format, marketplaces, pinning, `extends`.
 - [Command reference](commands.md) — every command, its flags, and behavior.
+- [Coordinate many sessions](coordinate.md) — run workers from a coordinator session.
 - [How it works](how-it-works.md) — the isolation model, provisioning, pinning, and known limitations.
 - [Statusline snippet](statusline.md) — show the active profile in your Claude Code statusline.
 

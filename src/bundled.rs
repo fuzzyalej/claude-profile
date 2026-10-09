@@ -40,6 +40,17 @@ mod tests {
     }
 
     #[test]
+    fn clean_profile_is_bundled_and_empty() {
+        let body = BUNDLED_FILES.iter().find(|(n, _)| *n == "clean.json").map(|(_, b)| *b).unwrap();
+        let p = crate::profile::Profile::from_json_str(body).unwrap();
+        assert_eq!(p.name, "clean");
+        assert!(p.plugins.is_empty());
+        assert!(p.plugin_dirs.is_empty());
+        assert!(p.marketplaces.is_empty());
+        assert!(p.mcp_servers.as_object().is_none_or(|m| m.is_empty()));
+    }
+
+    #[test]
     fn seed_writes_every_bundled_file() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("bundled");

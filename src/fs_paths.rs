@@ -54,6 +54,21 @@ impl Paths {
         self.user_profiles_dir().join("locks")
     }
 
+    #[allow(dead_code)]
+    pub fn runs_dir(&self) -> PathBuf {
+        self.user_profiles_dir().join("runs")
+    }
+
+    #[allow(dead_code)]
+    pub fn worktrees_dir(&self) -> PathBuf {
+        self.user_profiles_dir().join("worktrees")
+    }
+
+    #[allow(dead_code)]
+    pub fn bundled_plugins_dir(&self) -> PathBuf {
+        self.user_profiles_dir().join("bundled-plugins")
+    }
+
     pub fn index_cache_dir(&self) -> PathBuf {
         self.user_profiles_dir().join(".index-cache")
     }

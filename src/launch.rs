@@ -43,6 +43,17 @@ pub fn build_args(
     Ok(args)
 }
 
+#[cfg(unix)]
+pub fn spawn(profile_name: &str, args: &[String]) -> anyhow::Result<i32> {
+    use std::os::unix::process::CommandExt;
+    let e = crate::exe::command("claude")
+        .args(args)
+        .env("CLAUDE_PROFILE", profile_name)
+        .exec();
+    Err(anyhow::anyhow!("failed to spawn claude: {e}"))
+}
+
+#[cfg(not(unix))]
 pub fn spawn(profile_name: &str, args: &[String]) -> anyhow::Result<i32> {
     let status = crate::exe::command("claude")
         .args(args)

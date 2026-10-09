@@ -1,10 +1,12 @@
 pub mod check_update;
+pub mod coordinate;
 pub mod completions;
 pub mod find;
 pub mod list;
 pub mod show;
 pub mod status;
 pub mod remove;
+pub mod runs;
 pub mod update;
 pub mod new;
 pub mod self_uninstall;

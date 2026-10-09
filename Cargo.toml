@@ -2,7 +2,7 @@
 # crates.io name (claude-profile/claude_profile is already taken by an unrelated
 # crate). The installed binary is still named `claude-profile` — see [[bin]] below.
 name = "claude-profiles"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "Launch claude with only the plugins, skills, and MCP servers a profile defines"
 license = "MIT"
@@ -25,6 +25,10 @@ tempfile = "3"
 indicatif = "0.17"
 console = "0.15"
 ureq = { version = "3.3.0", default-features = false, features = ["rustls"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [profile.dist]
 inherits = "release"

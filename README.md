@@ -9,8 +9,8 @@ loaded for that session.
 ![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange)
 
 A standalone cross-platform CLI (Rust; macOS / Linux / Windows) — **not** a plugin, and it
-never writes to your real `~/.claude` at all: every plugin/skill a profile uses is vendored
-into that profile's own directory instead.
+never installs anything into your real `~/.claude`: every plugin/skill a profile uses is
+vendored into that profile's own directory instead.
 
 ```sh
 claude-profile rust-developer           # a lean Rust session — nothing else loaded
@@ -146,7 +146,7 @@ See [`completions`](docs/commands.md#completions) for install paths per shell an
 claude-profile rust-developer          # launch a session with only this profile's plugins
 claude-profile rust-dev frontend       # launch a combined session (union of several profiles)
 claude-profile fuzzyalej/rust-profile  # install a profile repo if needed, then launch its default
-claude-profile list                    # profiles and where they come from
+claude-profile list                    # profiles and where they come from (bundled ones included)
 claude-profile status                  # what's vendored per profile
 claude-profile remove rust-developer   # delete a profile and its vendored plugins/skills
 claude-profile find python             # discover plugins to add to a profile
@@ -156,6 +156,14 @@ Not sure what to put in a profile? `claude-profile find python` searches a local
 cross-marketplace index and prints copy-paste-ready `plugin@marketplace` ids. See
 [Authoring profiles](docs/profiles.md) for the full JSON format and [`find`](docs/commands.md#find)
 for the flag reference.
+
+## Bundled profiles
+
+`claude-profile` ships ready-made profiles for Rust, Python, Go, Java, .NET, Ruby, Rails,
+TypeScript, Angular, Vue, React, and Tauri desktop work, plus `frontend`, `rails-hyperdrive`,
+and `clean` (plain Claude Code, no extras). They are built into the binary and available as
+soon as you install it. Run `claude-profile list` to see them, or `claude-profile show <name>`
+to inspect one. See [Authoring profiles](docs/profiles.md#bundled-profiles).
 
 ## What a profile controls
 
@@ -186,6 +194,22 @@ claude-profile <profile-name>       # launch the one you want
 
 See [Command reference](docs/commands.md) for `install`, `show`, and pack update semantics.
 
+## Coordinate many sessions
+
+`coordinate` launches a session that delegates tasks to worker sessions. Each worker runs with
+its own profile, in its own git worktree and branch:
+
+```sh
+claude-profile coordinate rust-developer -- --permission-mode acceptEdits   # ask it to split work
+claude-profile runs --clean                                                 # remove finished workers' worktrees
+```
+
+Headless workers can't ask you to approve edits, so pass a permission mode that allows them.
+
+Inside [Herdr](https://herdr.dev), workers open in their own background tabs in the
+coordinator's workspace. Elsewhere they run headless. See
+[Coordinate many sessions](docs/coordinate.md).
+
 ## Uninstalling
 
 ```sh
@@ -202,17 +226,9 @@ see [Command reference](docs/commands.md#remove).
 
 - [Authoring profiles](docs/profiles.md) — the profile JSON format, marketplaces, pinning, `extends`.
 - [Command reference](docs/commands.md) — every command, its flags, and behavior.
+- [Coordinate many sessions](docs/coordinate.md) — run workers from a coordinator session.
 - [How it works](docs/how-it-works.md) — the isolation model, provisioning, pinning, and known limitations.
 - [Statusline snippet](docs/statusline.md) — show the active profile in your Claude Code statusline.
-
-### For contributors
-
-Design specs and implementation plans behind notable features in `claude-profile` itself
-(not needed to author or use a profile — only if you're changing the tool):
-
-- [Vendored plugin/skill isolation](docs/superpowers/specs/2026-07-15-vendored-plugin-isolation-design.md) ([plan](docs/superpowers/plans/2026-07-15-vendored-plugin-isolation.md)) — why provisioning copies plugins into a private vendor tree instead of installing into `~/.claude`.
-- [Cross-marketplace plugin finder](docs/superpowers/specs/2026-07-11-plugin-finder-design.md) ([plan](docs/superpowers/plans/2026-07-11-plugin-finder.md)) — the offline index behind `claude-profile find`.
-- [Install/remove progress spinner](docs/superpowers/specs/2026-07-14-install-spinner-design.md) ([plan](docs/superpowers/plans/2026-07-14-install-spinner.md)) — superseded; describes the original standalone `src/spinner.rs` module, since removed and replaced by the ambient reporter in `src/progress.rs`.
 
 ## License
 

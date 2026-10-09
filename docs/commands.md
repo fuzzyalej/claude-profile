@@ -1,23 +1,26 @@
 # Command reference
 
-This page documents the shipped command surface exactly as `claude-profile --help` and each
-subcommand's `--help` report it.
+This page documents the shipped command surface, based on `claude-profile --help` and each
+subcommand's `--help`.
 
 ```
-Usage: claude-profile [OPTIONS] [PROFILE] [-- <EXTRA>...] [COMMAND]
+Usage: claude-profile [OPTIONS] [PROFILES]... [-- <EXTRA>...] [COMMAND]
 
 Commands:
   list            List available profiles and their sources
   show            Show a profile's details and what it would install
   install         Install or refresh a profile repo (owner/repo[#ref]) without launching
-  update          Check for a newer claude-profile release (see `update profiles` for the old behavior)
+  update          Check whether a newer claude-profile release is available, or git-pull profile repos and re-resolve floating marketplaces
   status          Show each profile's vendored plugins/skills under ~/.claude-profiles/store/
   remove          Delete a personal profile or cloned pack
   new             Scaffold a new profile in ~/.claude-profiles/
   test            Run `claude plugin eval` against a plugin/skill target
   find            Search a local index of plugins across marketplaces
   self-uninstall  Remove the claude-profile binary (and optionally profile data)
-  completions     Print or install a shell completion script
+  completions     Print a shell completion script, or write it to the standard location with --install
+  statusline      Install or remove a statusline showing the active profile
+  coordinate      Launch a coordinator session that can delegate tasks to worker sessions
+  runs            List coordinator runs, or remove finished workers' worktrees and finished runs' state
   help            Print this message or the help of the given subcommand(s)
 ```
 
@@ -35,7 +38,7 @@ All of it goes to **stderr** — stdout carries only command results, so `find -
 
 ```
 Arguments:
-  [PROFILES]...  Profile name(s) to launch (when no subcommand is given)
+  [PROFILES]...  Profile name(s) to launch (when no subcommand is given). Give several to launch a combined session; each may be a profile name or a repo reference (owner/repo, URL)
   [EXTRA]...     Extra args forwarded to claude after `--`
 
 Options:
@@ -169,8 +172,10 @@ in the CLI.
      `install` behavior) have no `.git` and are skipped — re-run `install` to refresh them.
   2. For every discoverable profile (same search path as `list`), re-resolves each
      **floating** (unpinned/branch-tracking) marketplace to its current HEAD commit and
-     rewrites that profile's `.lock` file with the new SHA. Marketplaces pinned to an
-     explicit tag/SHA in the profile JSON are left alone; only floating refs move.
+     rewrites that profile's `.lock` file with the new SHA, then re-vendors its plugins from
+     the new checkout. Marketplaces pinned to an explicit tag/SHA in the profile JSON are left
+     alone; only floating refs move. A profile whose marketplaces aren't cloned yet is skipped
+     with a message: launch it once first.
 - **With `--frozen`:** does **not** pull packs and does **not** move any marketplace pin.
   Instead it re-resolves what each profile's lock *would* need and compares it against what's
   currently in `<profile>.lock`. If any profile's lock is stale (missing or out of date for a
@@ -187,7 +192,9 @@ Usage: claude-profile list
 
 Lists every profile `claude-profile` can find across the full search path (env dir, project
 dirs, personal profiles, installed packs, and the engine's own bundled profiles), deduplicated by name
-with the highest-priority location winning, along with where each one resolved from.
+with the highest-priority location winning. Each line is `<name>  [<source>]`, where the source
+is `env`, `project`, `user`, `pack:<owner--repo>`, or `bundled`. See
+[Bundled profiles](profiles.md#bundled-profiles) for the profiles that ship with the binary.
 
 ## `status`
 
@@ -214,8 +221,9 @@ disable.
   `.lock` file if any, and its entire `~/.claude-profiles/store/<name>/vendor/` directory.
 - `<TARGET>` as `owner/repo`: deletes the entire cloned pack directory
   (`~/.claude-profiles/packs/owner--repo/`).
-- **Safety behavior:** refuses to remove one of the engine's own bundled `profiles/` (e.g.
-  `rust-developer`): those ship with the binary and aren't user data.
+- **Safety behavior:** refuses to remove one of the engine's own bundled profiles (e.g.
+  `rust-developer`): those ship with the binary and aren't user data. It also refuses a bare
+  name that belongs to an installed pack; remove the whole pack with `owner/repo` instead.
 - Because each profile's vendored plugins/skills are its own private copies, removing one
   profile never affects another's vendor tree, even if both reference the same
   `plugin@marketplace` id. There's nothing to prune or garbage-collect afterward.
@@ -265,8 +273,8 @@ Options:
       --sync                    Rebuild the index from seeds (fetches marketplace manifests)
       --refresh-seeds           Harvest new marketplace seeds before syncing (not yet implemented)
       --json                    Machine-readable output
-      --limit <N>           Maximum number of results [default: 20]
-      --marketplace <NAME>  Filter results to a single marketplace
+      --limit <N>               Maximum number of results (default 20)
+      --marketplace <NAME>      Filter results to a single marketplace
 ```
 
 Searches a local, offline index of plugins across many marketplaces and prints results as
@@ -298,6 +306,95 @@ profile-ready `plugin@marketplace` ids, each with its marketplace's source repo
 - **Reads/writes:** the index is cached at `~/.claude-profiles/.index-cache/index.json`. On a
   no-match search, the message includes the index's `generated_at` timestamp so you know how
   stale it might be; re-run with `--sync` to refresh it.
+
+## `coordinate`
+
+```
+Usage: claude-profile coordinate [OPTIONS] [PROFILES]... [-- <EXTRA>...]
+
+Arguments:
+  [PROFILES]...  Profile name(s) for the coordinator session
+  [EXTRA]...     Extra args forwarded to claude after `--`
+
+Options:
+      --yes                        Skip the provisioning confirmation prompt
+      --max-workers <MAX_WORKERS>  Maximum number of workers running at once. Extra spawns queue [default: 4]
+      --headless                   Run workers headless even inside Herdr
+```
+
+Launches a session like `claude-profile <profile>...`, plus the `claude-profile-workers` MCP
+server and a bundled coordinator plugin. The coordinator uses them to start workers, track
+them, read their results, and clean up. At least one profile is required, and `--max-workers`
+must be at least 1.
+
+- **Workers.** Each worker is a separate session launched as `claude-profile <profiles> --yes
+  -- <session args> --add-dir <run_dir> <permission flags>`. The server provisions the
+  worker's profiles before it starts.
+- **Mode.** Inside Herdr (`HERDR_ENV=1` and `HERDR_PANE_ID` set), workers open in their own tabs
+  in the coordinator's workspace. Otherwise they run headless. `--headless` forces headless.
+- **System prompt.** `coordinate` appends a delegate-first and clean-up instruction to the
+  coordinator's system prompt with `--append-system-prompt`. Workers don't get it. Your own
+  `--append-system-prompt` text is kept and joined with it.
+- **Permissions.** Of the arguments after `--`, only `--permission-mode`,
+  `--dangerously-skip-permissions`, `--allowedTools` (`--allowed-tools`), and
+  `--disallowedTools` (`--disallowed-tools`) reach workers. Other arguments reach only the
+  coordinator. When workers run headless and none of these flags is given, `coordinate` prints
+  a warning, because headless workers can't ask for approval.
+- **Writes.** Run state under `~/.claude-profiles/runs/<run-id>/`, worktrees under
+  `~/.claude-profiles/worktrees/`, and the coordinator plugin under
+  `~/.claude-profiles/bundled-plugins/`.
+
+See [Coordinate many sessions](coordinate.md) for the full guide.
+
+`workers-mcp` is an internal command. Claude Code starts it from the coordinator's MCP
+configuration. Don't run it yourself.
+
+## `runs`
+
+```
+Usage: claude-profile runs [OPTIONS] [RUN_ID]
+
+Arguments:
+  [RUN_ID]  Limit --clean to one run
+
+Options:
+      --clean  Remove the worktrees, branches, and state of runs that are no longer active
+```
+
+Without options, lists coordinator runs, newest first. Each line shows the run ID, the working
+directory, and worker counts by status. A run whose `workers-mcp` server is still running ends
+with ` (active)`.
+
+With `--clean`, skips active runs and prints `skipped (in use): <run-id>` for each. In every
+other run, it treats all workers as finished, removes their worktrees and branches, and then
+removes the run. A run ID limits the cleanup to that run. A run ID without `--clean` is an
+error.
+
+The `workers-mcp` server holds a lock on `<run_dir>/server.lock` while it runs. A run is
+active when that lock is held.
+
+`--clean` never discards work. It keeps a worktree with uncommitted changes and a branch with
+commits not merged into the repo's current `HEAD`, and prints one line for each:
+
+```
+kept (uncommitted changes): <worktree path>
+kept (unmerged branch): cp/<worker-id>
+```
+
+A run that has anything kept stays listed.
+
+## `statusline`
+
+```
+Usage: claude-profile statusline <COMMAND>
+
+Commands:
+  install    Install the statusline: shows the active profile in Claude Code's statusline, composed with whatever statusLine command was already configured
+  uninstall  Remove the statusline and restore any prior statusLine config
+```
+
+Both subcommands take `--project` to target `./.claude/settings.json` instead of
+`~/.claude/settings.json`. See [Statusline](statusline.md).
 
 ## `self-uninstall`
 

@@ -22,9 +22,8 @@ To find candidate plugins to add, use [`find`](commands.md#find).
 5. `~/.claude-profiles/packs/<owner--repo>/profiles/<name>.json`, one candidate per installed
    pack (see [`install`](commands.md#install)).
 6. `~/.claude-profiles/bundled/<name>.json`: the reference profiles shipped with
-   `claude-profile` itself (e.g. `rust-developer`, `python-developer`, `react-developer`).
-   They are baked into the binary and written to this directory on the first run after
-   install or upgrade.
+   `claude-profile` itself. See [Bundled profiles](#bundled-profiles). They are baked into the
+   binary and written to this directory on the first run after install or upgrade.
 
 `~/.claude-profiles/bundled/` belongs to the engine: every upgrade rewrites it and deletes
 profiles that are no longer shipped. To customize a bundled profile, copy it up one level
@@ -58,19 +57,40 @@ if it isn't already cached, vendors a copy of the `superpowers` plugin into
 `claude --plugin-dir`-ed at only that vendor directory. Nothing else on the machine is loaded
 into the session.
 
-The engine ships richer reference profiles under `profiles/` for many stacks (Rust, Python,
-Go, Java, .NET, Ruby, Rails, TypeScript, Angular, Vue, React, plus a Tauri-based
-`rust-desktop-developer` and a `frontend` design-implementation profile, plus the
-MCP-only `rails-hyperdrive` add-on meant to be launched *alongside* `rails-developer`).
-Most of these
-`extend` a shared `dev-base` profile — the spec-driven `openpowers`/`superpowers` workflow,
-live docs (`context7`), code review, and commit plugins — and layer a language server plus
-backend/database/performance/testing plugins on top (see
-[Inheriting from another profile](#inheriting-from-another-profile) below for how `extends`
-works, using `rust-developer`/`dev-base` as a real example). Run `claude-profile list` to see
-the full set, or `claude-profile show <name>` to inspect one (with `extends` expanded) before
-launching. These were composed with [`find`](commands.md#find) against the cross-marketplace
-plugin index.
+## Bundled profiles
+
+`claude-profile` ships these profiles. Run `claude-profile list` to see them, or
+`claude-profile show <name>` to inspect one with `extends` expanded.
+
+| Profile | Extends | Use it for |
+|---|---|---|
+| `clean` | none | Plain Claude Code: no plugins, skills, or MCP servers. |
+| `dev-base` | none | Shared base: the spec-driven `openpowers`/`superpowers` workflow, live docs (`context7`), code review, and commit plugins. Needs the `openspec` CLI, which you install separately (`npm i -g @fission-ai/openspec`). |
+| `rust-developer` | `dev-base` | Rust, with rust-analyzer. |
+| `rust-desktop-developer` | `dev-base` | Tauri desktop apps. |
+| `python-developer` | `dev-base` | Python backends. |
+| `ruby-developer` | `dev-base` | Ruby, with ruby-lsp. |
+| `rails-developer` | `dev-base` | Ruby on Rails. |
+| `rails-hyperdrive` | none | MCP-only add-on for live introspection of a running Rails app. Launch it alongside `rails-developer`. |
+| `go-developer` | none | Go, with gopls. |
+| `java-developer` | none | Java, with jdtls and Spring Boot. |
+| `dotnet-developer` | none | .NET and C#. |
+| `typescript-developer` | none | TypeScript and Node. |
+| `react-developer` | none | React and Next.js. |
+| `vue-developer` | none | Vue and Nuxt. |
+| `angular-developer` | none | Angular. |
+| `frontend` | none | Turning HTML designs and a design guide into working UI. |
+
+The stack profiles add a language server and backend, database, performance, testing, review,
+and commit plugins. They were composed with [`find`](commands.md#find) against the
+cross-marketplace plugin index. See [Inheriting from another profile](#inheriting-from-another-profile)
+for how `extends` works, using `rust-developer` and `dev-base` as an example.
+
+To combine profiles, list them in one launch:
+
+```sh
+claude-profile rails-developer rails-hyperdrive
+```
 
 ## Fields
 
