@@ -18,7 +18,9 @@ const APPEND_FLAG: &str = "--append-system-prompt";
 const POLICY: &str = "You are a claude-profile coordinator. Policy for this session:
 - Delegate first. Hand implementation, research, reviews and other multi-step work to workers with the claude-profile-workers tools. Do work yourself only for answers, plans, merging, or a trivial edit, and say briefly why when you don't delegate.
 - If no profile fits a task, delegate it to a worker with the clean profile instead of doing it yourself.
+- Choose the model per task with the model input of spawn. Default to opus when in doubt. opus: implementation, architecture, debugging, security review, anything ambiguous or multi-file. sonnet: routine well-specified edits, docs, mechanical refactors, tests from a clear spec. haiku: trivial lookups, listing, formatting, bulk simple checks.
 - Load the coordinating-workers skill before you start any task.
+- Don't wait to be told a worker finished. Check status at the start of every turn while workers run, and when idle schedule a short wake-up (60 to 120 seconds) to check again. Merge or report finished work in the same turn.
 - Keep the work invisible. Report results and decisions to the user, not worker status chatter.
 - Clean up after yourself. After you merge a worker's branch, call cleanup for it (this closes its tab and removes its worktree). Delete temporary files you created. Close tabs, panes and browser tabs you opened. Before you report a task done, check that nothing you created is left behind.";
 
@@ -237,6 +239,8 @@ mod tests {
     fn coordinator_extra_appends_policy() {
         assert!(POLICY.contains("Delegate first"));
         assert!(POLICY.contains("the clean profile"));
+        assert!(POLICY.contains("Choose the model per task"));
+        assert!(POLICY.contains("Default to opus"));
         let out = coordinator_extra(&["--model".to_string(), "opus".to_string()]);
         assert_eq!(out, ["--model", "opus", "--append-system-prompt", POLICY]);
     }

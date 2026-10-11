@@ -351,6 +351,7 @@ mod tests {
             exe: PathBuf::from("/usr/bin/claude-profile"),
             profiles: vec!["rust".into()],
             permission_flags: vec!["--allowedTools".into(), "Bash(git log:*) Edit".into()],
+            model: None,
             run_dir: PathBuf::from("/tmp/run dir"),
         }
     }
@@ -373,6 +374,7 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             idle_since: None,
+            model: None,
         }
     }
 
@@ -393,6 +395,14 @@ mod tests {
         assert_eq!(shell_quote("rust"), "rust");
         assert_eq!(shell_quote("Bash(git log:*)"), "'Bash(git log:*)'");
         assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn pane_command_passes_model() {
+        let mut spec = spec();
+        spec.model = Some("opus".into());
+        let cmd = pane_command(&spec, "sess-1");
+        assert!(cmd.ends_with("--model opus"), "{cmd}");
     }
 
     #[test]

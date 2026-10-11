@@ -72,6 +72,8 @@ pub struct WorkerState {
     pub updated_at: u64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub idle_since: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model: Option<String>,
 }
 
 pub struct RunDir {
@@ -256,6 +258,7 @@ mod tests {
             created_at,
             updated_at: created_at,
             idle_since: None,
+            model: None,
         }
     }
 

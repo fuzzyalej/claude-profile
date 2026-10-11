@@ -32,6 +32,14 @@ Call `list_profiles` first. Only names it returns are valid. Pick the narrowest 
 - Never stretch an unrelated profile to cover a task.
 - `clean` is also right for generic work that needs no special tooling, such as docs, scripts, and quick research.
 
+### Choosing models
+
+Set `model` on `spawn` to pick the Claude model per task. It takes an alias (`opus`, `sonnet`, `haiku`) or a full model ID. Omit it to use the default. Default to `opus` when in doubt.
+
+- `opus`: implementation, architecture, debugging, security review, and anything ambiguous or multi-file.
+- `sonnet`: routine well-specified edits, docs, mechanical refactors, and tests from a clear spec.
+- `haiku`: trivial lookups, listing, formatting, and bulk simple checks.
+
 ## 3. Splitting work
 
 - Give each task clear file ownership, so two worktrees rarely touch the same files.
@@ -55,7 +63,7 @@ The server adds the result contract to every task, and tells worktree workers to
 | Tool | Input | Use it to |
 |---|---|---|
 | `list_profiles` | none | List installed profiles: `{name, description}`. Call before `spawn`. |
-| `spawn` | `profiles: string[]`, `task`, `worktree = true`, `base_ref?`, `name?` | Start a worker. Returns `{id, status}`, plus `branch` and `worktree` when one was created. Status is `starting` or `queued`. |
+| `spawn` | `profiles: string[]`, `task`, `worktree = true`, `base_ref?`, `name?`, `model?` | Start a worker. Returns `{id, status}`, plus `branch` and `worktree` when one was created. Status is `starting` or `queued`. |
 | `status` | `id?` | Get one worker's status, or all workers' when `id` is omitted. |
 | `result` | `id` | Read the outcome: `summary`, `notes`, `branch`, `worktree`, `base`, `changed_files`, `session_id`. Final once status is `done` or `failed`. If git can't list the changes, `changed_files` is empty and `changed_files_error` says why. |
 | `send` | `id`, `message` | Resume a worker with its previous context. Works in any status except `queued`. |
@@ -89,6 +97,12 @@ Workers can't spawn workers.
 ## 6. Polling
 
 Workers take minutes. Do other work, then call `status` (no `id`) to check all of them at once. Don't call it in a tight loop.
+
+Don't wait for the user to tell you a worker finished:
+
+- Call `status` at the start of every turn while any worker is `queued`, `starting`, `working` or `blocked`.
+- When you have no other work and workers are still running, schedule a wake-up (`ScheduleWakeup`, 60 to 120 seconds) and check `status` when it fires. Stop scheduling when no workers are running.
+- When a worker is `done` or `failed`, read `result` and merge or report it in the same turn.
 
 ## 7. Follow-up work
 

@@ -46,6 +46,10 @@ Returns {{id, status}}, plus branch and worktree when a worktree was created. St
                     "name": {
                         "type": "string",
                         "description": "Optional short name used to build the worker id."
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Claude model for the worker: an alias (opus, sonnet, haiku) or a full model ID. Omit to use the default. Choose per task: opus for implementation, architecture, debugging, security review and anything ambiguous or multi-file; sonnet for routine well-specified edits, docs, mechanical refactors and tests from a clear spec; haiku for trivial lookups, listing, formatting and bulk simple checks. Use opus when in doubt."
                     }
                 },
                 "required": ["profiles", "task"]
@@ -138,6 +142,13 @@ fn optional_str(args: &Map<String, Value>, field: &str) -> Result<Option<String>
     }
 }
 
+fn model_arg(args: &Map<String, Value>) -> Result<Option<String>, String> {
+    match optional_str(args, "model")? {
+        Some(m) if m.trim().is_empty() => Err("argument 'model' must not be empty".into()),
+        other => Ok(other),
+    }
+}
+
 fn bool_or(args: &Map<String, Value>, field: &str, default: bool) -> Result<bool, String> {
     match args.get(field) {
         None | Some(Value::Null) => Ok(default),
@@ -162,6 +173,7 @@ fn spawn_args(args: &Map<String, Value>) -> Result<SpawnArgs, String> {
         worktree: bool_or(args, "worktree", true)?,
         base_ref: optional_str(args, "base_ref")?,
         name: optional_str(args, "name")?,
+        model: model_arg(args)?,
     })
 }
 
@@ -399,6 +411,32 @@ mod tests {
         let d = spawn["description"].as_str().unwrap();
         for needle in ["git repo", "HEAD", "base_ref", "uncommitted", "conversation", "self-contained", "queued", "clean"] {
             assert!(d.contains(needle), "missing {needle}");
+        }
+    }
+
+    #[test]
+    fn spawn_schema_has_model() {
+        let t = tools();
+        let spawn = t.as_array().unwrap().iter().find(|t| t["name"] == "spawn").unwrap();
+        assert_eq!(spawn["inputSchema"]["properties"]["model"]["type"], "string");
+        assert!(!spawn["inputSchema"]["required"].as_array().unwrap().contains(&json!("model")));
+    }
+
+    #[test]
+    fn spawn_args_pass_model_through() {
+        let args = json!({"profiles":["rust"],"task":"x","model":"sonnet"});
+        let parsed = spawn_args(args.as_object().unwrap()).unwrap();
+        assert_eq!(parsed.model.as_deref(), Some("sonnet"));
+        let args = json!({"profiles":["rust"],"task":"x"});
+        assert_eq!(spawn_args(args.as_object().unwrap()).unwrap().model, None);
+    }
+
+    #[test]
+    fn spawn_rejects_empty_or_non_string_model() {
+        for model in [json!(""), json!("  "), json!(3)] {
+            let r = call("spawn", json!({"profiles":["rust"],"task":"x","worktree":false,"model":model}));
+            assert!(is_error(&r));
+            assert!(text(&r).contains("model"));
         }
     }
 

@@ -6,6 +6,7 @@ pub struct LaunchSpec {
     pub exe: PathBuf,
     pub profiles: Vec<String>,
     pub permission_flags: Vec<String>,
+    pub model: Option<String>,
     pub run_dir: PathBuf,
 }
 
@@ -47,6 +48,10 @@ pub fn launch_args(spec: &LaunchSpec, tail: &[String]) -> Vec<String> {
     args.push("--add-dir".to_string());
     args.push(spec.run_dir.display().to_string());
     args.extend(spec.permission_flags.iter().cloned());
+    if let Some(model) = &spec.model {
+        args.push("--model".to_string());
+        args.push(model.clone());
+    }
     args
 }
 
@@ -132,6 +137,7 @@ mod tests {
             exe: "claude-profile".into(),
             profiles: vec!["rust".into(), "docs".into()],
             permission_flags: vec!["--permission-mode".into(), "plan".into()],
+            model: None,
             run_dir: "/r".into(),
         };
         let tail = vec!["-p".to_string(), "x".to_string()];
@@ -142,11 +148,31 @@ mod tests {
     }
 
     #[test]
+    fn launch_args_add_model_once_after_permission_flags() {
+        let spec = LaunchSpec {
+            exe: "claude-profile".into(),
+            profiles: vec!["rust".into()],
+            permission_flags: crate::coord::perm::permission_flags(&[
+                "--model".to_string(),
+                "sonnet".to_string(),
+                "--permission-mode".to_string(),
+                "plan".to_string(),
+            ]),
+            model: Some("opus".into()),
+            run_dir: "/r".into(),
+        };
+        let args = launch_args(&spec, &[]);
+        assert_eq!(args.iter().filter(|a| *a == "--model").count(), 1);
+        assert_eq!(args[args.len() - 2..], ["--model", "opus"]);
+    }
+
+    #[test]
     fn launch_args_never_carry_the_coordinator_policy() {
         let spec = LaunchSpec {
             exe: "claude-profile".into(),
             profiles: vec!["rust".into()],
             permission_flags: vec!["--permission-mode".into(), "plan".into()],
+            model: None,
             run_dir: "/r".into(),
         };
         let args = launch_args(&spec, &["-p".to_string(), "x".to_string()]);

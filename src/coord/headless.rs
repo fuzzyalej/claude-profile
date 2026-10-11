@@ -225,6 +225,7 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             idle_since: None,
+            model: None,
         }
     }
 
@@ -249,6 +250,7 @@ mod tests {
             exe: script,
             profiles: vec![],
             permission_flags: vec![],
+            model: None,
             run_dir: dir.path().join("run"),
         };
         let prompt = "say \"hi\"\nit's $HOME ñ\n-- --flag";
@@ -290,6 +292,7 @@ mod tests {
             exe: script,
             profiles: vec![],
             permission_flags: vec![],
+            model: None,
             run_dir: dir.join("run"),
         };
         (spec, cwd, pid_file)
@@ -362,6 +365,7 @@ mod tests {
             exe: script,
             profiles: vec!["rust".into()],
             permission_flags: vec![],
+            model: None,
             run_dir,
         };
         let mut w = worker(&cwd);
@@ -398,6 +402,7 @@ mod tests {
             exe: script,
             profiles: vec![],
             permission_flags: vec![],
+            model: None,
             run_dir: dir.path().join("run"),
         };
         let mut w = worker(&cwd);

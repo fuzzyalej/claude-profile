@@ -30,6 +30,7 @@ pub struct SpawnArgs {
     pub worktree: bool,
     pub base_ref: Option<String>,
     pub name: Option<String>,
+    pub model: Option<String>,
 }
 
 fn file_status(v: &Value) -> Option<Status> {
@@ -110,6 +111,7 @@ impl<B: Backend> Manager<B> {
             created_at: t,
             updated_at: t,
             idle_since: None,
+            model: args.model.clone(),
         };
         if queue {
             self.dir.save_worker(&w)?;
@@ -389,6 +391,7 @@ impl<B: Backend> Manager<B> {
             exe: self.spec_base.0.clone(),
             profiles: w.profiles.clone(),
             permission_flags: self.run.permission_flags.clone(),
+            model: w.model.clone(),
             run_dir: self.spec_base.1.clone(),
         }
     }
@@ -553,6 +556,7 @@ mod tests {
             worktree,
             base_ref: None,
             name: Some(task.into()),
+            model: None,
         }
     }
 
@@ -585,6 +589,32 @@ mod tests {
         assert_eq!(w.status, Status::Starting);
         assert_eq!(w.cwd, PathBuf::from(v["worktree"].as_str().unwrap()));
         assert!(uuid::Uuid::parse_str(&w.session_id).is_ok());
+    }
+
+    #[test]
+    fn spawn_records_model_and_launch_spec_carries_it() {
+        let e = env(false);
+        let mut m = manager(&e, FakeBackend::default(), false, 4);
+        let mut a = args("fix", false);
+        a.model = Some("haiku".into());
+        m.spawn(a).unwrap();
+        let w = m.dir.load_worker("fix").unwrap();
+        assert_eq!(w.model.as_deref(), Some("haiku"));
+        let spec = m.spec_for(&w);
+        assert_eq!(spec.model.as_deref(), Some("haiku"));
+        let argv = crate::coord::backend::launch_args(&spec, &[]);
+        let at = argv.iter().position(|a| a == "--model").unwrap();
+        assert_eq!(argv[at + 1], "haiku");
+    }
+
+    #[test]
+    fn spawn_without_model_leaves_it_unset() {
+        let e = env(false);
+        let mut m = manager(&e, FakeBackend::default(), false, 4);
+        m.spawn(args("fix", false)).unwrap();
+        let w = m.dir.load_worker("fix").unwrap();
+        assert_eq!(w.model, None);
+        assert_eq!(m.spec_for(&w).model, None);
     }
 
     #[test]

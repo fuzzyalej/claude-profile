@@ -91,6 +91,21 @@ other profile fits a task, the coordinator spawns the worker with `["clean"]` in
 stretching an unrelated profile. It is also the right choice for generic work such as docs,
 scripts, and quick research.
 
+## Choosing models
+
+`spawn` takes an optional `model` input. The value is an alias (`opus`, `sonnet`, `haiku`) or a
+full model ID. `coordinate` passes it to the worker as `--model <value>` in both backends. When
+you omit it, the worker uses the default model. A `model` value in `spawn` overrides any model
+you pass after `--`.
+
+The coordinator picks a model for each task:
+
+| Model | Use for |
+|---|---|
+| `opus` | Implementation, architecture, debugging, security review, and anything ambiguous or multi-file. The default when in doubt. |
+| `sonnet` | Routine well-specified edits, docs, mechanical refactors, and tests from a clear spec. |
+| `haiku` | Trivial lookups, listing, formatting, and bulk simple checks. |
+
 ## Coordinator behavior
 
 `coordinate` adds a standing instruction to the coordinator's system prompt. Workers and plain
@@ -101,6 +116,7 @@ scripts, and quick research.
   when it doesn't delegate.
 - Delegate tasks that no profile fits to a worker with the `clean` profile, instead of doing
   them itself.
+- Choose the model per task. It defaults to `opus` when in doubt. See [Choosing models](#choosing-models).
 - Load the `coordinating-workers` skill before it starts any task.
 - Keep the work invisible. It reports results and decisions, not worker status chatter.
 - Clean up. After it merges a worker's branch, it calls `cleanup`, which closes the worker's
