@@ -65,7 +65,7 @@ into the session.
 | Profile | Extends | Use it for |
 |---|---|---|
 | `clean` | none | Plain Claude Code: no plugins, skills, or MCP servers. |
-| `dev-base` | none | Shared base: the spec-driven `openpowers`/`superpowers` workflow, live docs (`context7`), code review, and commit plugins. Needs the `openspec` CLI, which you install separately (`npm i -g @fission-ai/openspec`). |
+| `dev-base` | none | Shared base: the spec-driven `openpowers`/`superpowers` workflow, live docs (`context7`), code review, commit plugins, and the `intent` and `impeccable` design plugins. Needs the `openspec` CLI, which you install separately (`npm i -g @fission-ai/openspec`). |
 | `rust-developer` | `dev-base` | Rust, with rust-analyzer. |
 | `rust-desktop-developer` | `dev-base` | Tauri desktop apps. |
 | `python-developer` | `dev-base` | Python backends. |

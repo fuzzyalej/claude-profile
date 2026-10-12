@@ -4,14 +4,18 @@
   "marketplaces": {
     "superpowers-marketplace": "obra/superpowers-marketplace",
     "diagon-alley": "fuzzyalej/diagon-alley",
-    "claude-plugins-official": "anthropics/claude-plugins-official"
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "intent": "ghaida/intent",
+    "impeccable": "pbakaus/impeccable"
   },
   "plugins": [
     "superpowers@superpowers-marketplace",
     "openpowers@diagon-alley",
     "context7@claude-plugins-official",
     "code-review@claude-plugins-official",
-    "commit-commands@claude-plugins-official"
+    "commit-commands@claude-plugins-official",
+    "intent@intent",
+    "impeccable@impeccable"
   ],
   "pluginDirs": [],
   "mcpServers": {
