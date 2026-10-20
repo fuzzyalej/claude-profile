@@ -357,6 +357,9 @@ Usage: claude-profile runs [OPTIONS] [RUN_ID]
 Arguments:
   [RUN_ID]  Limit --clean to one run
 
+Commands:
+  wait  Block until a worker finishes, fails, or is blocked
+
 Options:
       --clean  Remove the worktrees, branches, and state of runs that are no longer active
 ```
@@ -382,6 +385,54 @@ kept (unmerged branch): cp/<worker-id>
 ```
 
 A run that has anything kept stays listed.
+
+### `runs wait`
+
+```
+Usage: claude-profile runs wait [OPTIONS] [RUN_ID]
+
+Arguments:
+  [RUN_ID]  The run to watch
+
+Options:
+      --timeout <TIMEOUT>  Exit with code 124 after this many seconds without an event
+```
+
+Blocks until a worker in the run finishes, fails, or is blocked. It prints one line for each new
+event and exits with code 0:
+
+```
+<worker-id> done
+<worker-id> failed: <reason>
+<worker-id> blocked pane <pane_id>
+```
+
+Run it with `run_in_background: true` from the coordinator session. Claude Code resumes the
+session when the command exits, so the coordinator is notified instead of polling `status`.
+
+Without a run ID, it uses the run whose working directory contains the current directory. Active
+runs come first, then the newest. With no match, it exits with an error.
+
+It checks every second:
+
+- **Done or failed.** The worker wrote `result.json`, or its `worker.json` shows a finished status.
+- **Failed.** The Herdr pane is gone, or the headless process exited without a result.
+- **Blocked.** Herdr reports the agent as blocked. Checked only when the run uses Herdr and
+  `HERDR_ENV=1`.
+
+Each run keeps a cursor in `<run_dir>/notified.json`, so each event is reported once. Events that
+happened before the command started are still reported. A worker that becomes blocked again after
+it resumed is reported again, and so is a worker that finishes again after a `send`.
+
+| Outcome                              | Output                                  | Exit code |
+| ------------------------------------ | --------------------------------------- | --------- |
+| One or more new events               | One line per event                      | 0         |
+| No active workers and nothing new    | `no active workers in run <run-id>`     | 0         |
+| `--timeout` elapsed with no event    | `timed out after <n>s with no worker events` | 124  |
+
+The command is read-only toward worker state. It never writes `worker.json`. Only the
+`workers-mcp` server updates worker status, so call `status` after the command exits to get the
+current state.
 
 ## `statusline`
 

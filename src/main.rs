@@ -38,6 +38,18 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum RunsAction {
+    /// Block until a worker finishes, fails, or is blocked, print one line per new event, and exit.
+    Wait {
+        /// The run to watch. Defaults to the newest run for the current directory, active runs first.
+        run_id: Option<String>,
+        /// Exit with code 124 after this many seconds without an event.
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// List available profiles and their sources.
     List,
@@ -127,12 +139,15 @@ enum Command {
         extra: Vec<String>,
     },
     /// List coordinator runs, or remove finished workers' worktrees and finished runs' state.
+    #[command(args_conflicts_with_subcommands = true)]
     Runs {
         /// Remove the worktrees, branches, and state of runs that are no longer active.
         #[arg(long)]
         clean: bool,
         /// Limit --clean to one run.
         run_id: Option<String>,
+        #[command(subcommand)]
+        action: Option<RunsAction>,
     },
     /// (hidden) Serve the worker MCP tools for a coordinate run over stdio. Started by
     /// Claude Code from the coordinator's MCP config — not for direct use.
@@ -255,7 +270,10 @@ fn dispatch_command(
             let opts = commands::coordinate::Options { profiles, yes, max_workers, headless, extra };
             commands::coordinate::run(&opts, paths, cwd, env, bundled)
         }
-        Command::Runs { clean, run_id } => commands::runs::run(paths, clean, run_id.as_deref()),
+        Command::Runs { action: Some(RunsAction::Wait { run_id, timeout }), .. } => {
+            commands::runs::wait(paths, cwd, run_id.as_deref(), timeout)
+        }
+        Command::Runs { clean, run_id, action: None } => commands::runs::run(paths, clean, run_id.as_deref()),
         Command::WorkersMcp { run } => commands::coordinate::serve_workers(&run, paths, env, bundled),
     }
 }

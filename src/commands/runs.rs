@@ -1,9 +1,15 @@
-use crate::coord::state::{RunDir, RunState, Status, WorkerState};
+use crate::coord::herdr::{Herdr, RealHerdr};
+use crate::coord::state::{BackendKind, RunDir, RunState, Status, WorkerState};
+use crate::coord::watch::{self, Outcome};
 use crate::coord::worktree;
 use crate::fs_paths::Paths;
 use anyhow::{bail, Result};
 use std::fmt;
 use std::path::Path;
+use std::time::Duration;
+
+pub const WAIT_TIMEOUT_CODE: i32 = 124;
+const WAIT_POLL: Duration = Duration::from_secs(1);
 
 #[derive(Debug, PartialEq)]
 pub enum Kept {
@@ -52,6 +58,51 @@ pub fn run(paths: &Paths, clean_runs: bool, run_id: Option<&str>) -> Result<i32>
     }
     println!("{}", format_runs(&runs));
     Ok(0)
+}
+
+pub fn resolve_run(paths: &Paths, cwd: &Path, run_id: Option<&str>) -> Result<RunDir> {
+    if let Some(id) = run_id {
+        return RunDir::open(paths, id).or_else(|_| bail!("unknown run '{id}'"));
+    }
+    let mut found: Vec<(bool, u64, String, RunDir)> = list_dirs(paths)
+        .into_iter()
+        .filter_map(|d| {
+            let run = d.load_run().ok()?;
+            cwd.starts_with(&run.cwd).then(|| (d.is_live(), run.created_at, run.run_id, d))
+        })
+        .collect();
+    found.sort_by(|a, b| (b.0, b.1, &b.2).cmp(&(a.0, a.1, &a.2)));
+    match found.into_iter().next() {
+        Some((_, _, _, dir)) => Ok(dir),
+        None => bail!("no run for {}; pass a run id (see `claude-profile runs`)", cwd.display()),
+    }
+}
+
+pub fn wait(paths: &Paths, cwd: &Path, run_id: Option<&str>, timeout: Option<u64>) -> Result<i32> {
+    let dir = resolve_run(paths, cwd, run_id)?;
+    let run = dir.load_run()?;
+    let timeout = timeout.map(Duration::from_secs);
+    let in_herdr = std::env::var("HERDR_ENV").is_ok_and(|v| v == "1");
+    let herdr = match (&run.backend, &run.coordinator_pane) {
+        (BackendKind::Herdr, Some(pane)) if in_herdr => Some(Herdr::new(RealHerdr, pane.clone())),
+        _ => None,
+    };
+    match watch::wait(&dir, &run, herdr, timeout, WAIT_POLL)? {
+        Outcome::Events(lines) => {
+            for line in lines {
+                println!("{line}");
+            }
+            Ok(0)
+        }
+        Outcome::NoActive => {
+            println!("no active workers in run {}", run.run_id);
+            Ok(0)
+        }
+        Outcome::Timeout => {
+            println!("timed out after {}s with no worker events", timeout.map_or(0, |t| t.as_secs()));
+            Ok(WAIT_TIMEOUT_CODE)
+        }
+    }
 }
 
 fn list_dirs(paths: &Paths) -> Vec<RunDir> {
@@ -232,6 +283,37 @@ mod tests {
     #[test]
     fn format_runs_empty() {
         assert_eq!(format_runs(&[]), "No runs.");
+    }
+
+    #[test]
+    fn resolve_run_prefers_live_then_newest_for_cwd() {
+        let f = fixture();
+        let old = RunDir::create(&f.paths, &run_state("1-aaa", &f.repo, 1)).unwrap();
+        let new = RunDir::create(&f.paths, &run_state("2-bbb", &f.repo, 2)).unwrap();
+        RunDir::create(&f.paths, &run_state("3-ccc", Path::new("/elsewhere"), 3)).unwrap();
+        let sub = f.repo.join("sub");
+        assert_eq!(resolve_run(&f.paths, &sub, None).unwrap().root, new.root);
+        let _lock = old.hold_lock().unwrap();
+        assert_eq!(resolve_run(&f.paths, &f.repo, None).unwrap().root, old.root);
+        assert_eq!(resolve_run(&f.paths, Path::new("/none"), Some("2-bbb")).unwrap().root, new.root);
+        assert!(resolve_run(&f.paths, Path::new("/none"), None).is_err());
+        assert_eq!(
+            resolve_run(&f.paths, &f.repo, Some("nope")).err().unwrap().to_string(),
+            "unknown run 'nope'"
+        );
+    }
+
+    #[test]
+    fn wait_exit_codes() {
+        let f = fixture();
+        let dir = RunDir::create(&f.paths, &run_state("1-aaa", &f.repo, 1)).unwrap();
+        assert_eq!(wait(&f.paths, &f.repo, None, Some(0)).unwrap(), 0);
+        let mut w = worker("a", Status::Working);
+        w.pid = Some(std::process::id());
+        dir.save_worker(&w).unwrap();
+        assert_eq!(wait(&f.paths, &f.repo, Some("1-aaa"), Some(0)).unwrap(), WAIT_TIMEOUT_CODE);
+        dir.save_worker(&worker("a", Status::Done)).unwrap();
+        assert_eq!(wait(&f.paths, &f.repo, Some("1-aaa"), Some(0)).unwrap(), 0);
     }
 
     struct Fixture {
