@@ -145,6 +145,8 @@ impl<C: HerdrCli> Herdr<C> {
             "--wait",
             "--until",
             "working",
+            "--until",
+            "blocked",
             "--timeout",
             SUBMIT_TIMEOUT_MS,
         ]));
@@ -153,14 +155,22 @@ impl<C: HerdrCli> Herdr<C> {
             other => return other.map(|_| ()),
         }
         for _ in 0..SUBMIT_RETRIES {
-            self.cli
-                .run(&args(&["agent", "send-keys", pane, "enter"]))?;
+            match self.agent_status(pane)?.as_str() {
+                "working" | "blocked" => return Ok(()),
+                "idle" | "done" => {
+                    self.cli
+                        .run(&args(&["agent", "send-keys", pane, "enter"]))?;
+                }
+                _ => {}
+            }
             let waited = self.cli.run(&args(&[
                 "agent",
                 "wait",
                 pane,
                 "--until",
                 "working",
+                "--until",
+                "blocked",
                 "--timeout",
                 SUBMIT_TIMEOUT_MS,
             ]));
@@ -172,6 +182,14 @@ impl<C: HerdrCli> Herdr<C> {
         bail!(
             "prompt was typed but never submitted after {SUBMIT_RETRIES} Enter retries; worker did not start"
         )
+    }
+
+    fn agent_status(&self, pane: &str) -> Result<String> {
+        let v = self.cli.run(&args(&["agent", "get", pane]))?;
+        Ok(v.pointer("/result/agent/agent_status")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string())
     }
 
     fn wait_idle(&self, pane: &str) -> Result<()> {
@@ -494,7 +512,7 @@ mod tests {
         assert_eq!(calls[2], "agent wait w9:p2 --until idle --timeout 60000");
         assert_eq!(
             calls[3],
-            format!("agent prompt w9:p2 {prompt} --wait --until working --timeout 30000")
+            format!("agent prompt w9:p2 {prompt} --wait --until working --until blocked --timeout 30000")
         );
         assert_eq!(
             h.cli.calls.borrow()[3][3],
@@ -516,7 +534,7 @@ mod tests {
         h.send(&mut w, &spec(), "do it").unwrap();
         assert_eq!(
             joined(&h),
-            ["agent prompt w9:p2 do it --wait --until working --timeout 30000"]
+            ["agent prompt w9:p2 do it --wait --until working --until blocked --timeout 30000"]
         );
     }
 
@@ -529,9 +547,10 @@ mod tests {
         h.start(&mut w, &spec(), "task").unwrap();
         let calls = joined(&h);
         assert!(calls[3].starts_with("agent prompt w9:p2 task --wait"), "{calls:?}");
-        assert_eq!(calls[4], "agent send-keys w9:p2 enter");
-        assert_eq!(calls[5], "agent wait w9:p2 --until working --timeout 30000");
-        assert!(calls[6].starts_with("pane report-metadata"), "{calls:?}");
+        assert_eq!(calls[4], "agent get w9:p2");
+        assert_eq!(calls[5], "agent send-keys w9:p2 enter");
+        assert_eq!(calls[6], "agent wait w9:p2 --until working --until blocked --timeout 30000");
+        assert!(calls[7].starts_with("pane report-metadata"), "{calls:?}");
         assert_eq!(w.pane_id.as_deref(), Some("w9:p2"));
     }
 
@@ -570,7 +589,21 @@ mod tests {
         let mut w = worker("a");
         w.pane_id = Some("w9:p2".into());
         h.send(&mut w, &spec(), "more").unwrap();
-        assert_eq!(joined(&h)[1], "agent send-keys w9:p2 enter");
+        assert_eq!(joined(&h)[2], "agent send-keys w9:p2 enter");
+    }
+
+    #[test]
+    fn prompt_stall_with_blocked_agent_sends_no_enter() {
+        for status in ["blocked", "working"] {
+            let mut cli = FakeHerdr::new();
+            cli.status = status.into();
+            cli.fail_on("agent prompt", "timeout");
+            let mut h = Herdr::new(cli, "w9:p1".into());
+            let mut w = worker("a");
+            h.start(&mut w, &spec(), "task").unwrap();
+            assert!(!joined(&h).iter().any(|c| c.contains("send-keys")));
+            assert_eq!(w.pane_id.as_deref(), Some("w9:p2"));
+        }
     }
 
     #[test]
