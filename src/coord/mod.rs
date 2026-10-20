@@ -6,4 +6,5 @@ pub mod mcp;
 pub mod perm;
 pub mod plugin;
 pub mod state;
+pub mod watch;
 pub mod worktree;

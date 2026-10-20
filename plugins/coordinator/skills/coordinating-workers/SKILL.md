@@ -94,15 +94,18 @@ Inside Herdr, each worker opens in its own background tab the user can step into
 
 Workers can't spawn workers.
 
-## 6. Polling
+## 6. Waiting for workers
 
-Workers take minutes. Do other work, then call `status` (no `id`) to check all of them at once. Don't call it in a tight loop.
+Workers take minutes. Don't poll `status` in a loop. Get notified instead:
 
-Don't wait for the user to tell you a worker finished:
+1. After you spawn workers, start `claude-profile runs wait` with the Bash tool and `run_in_background: true`.
+2. Do other work, or end your turn. The command exits when a worker finishes, fails, or is blocked, and Claude Code resumes your session.
+3. Read its output. Each line is `<worker-id> done`, `<worker-id> failed: <reason>`, or `<worker-id> blocked pane <pane_id>`. Call `status` or `result` for those workers and act on them: merge, report, or answer a blocked worker.
+4. If workers are still running, start `claude-profile runs wait` again. Each event is reported once.
 
-- Call `status` at the start of every turn while any worker is `queued`, `starting`, `working` or `blocked`.
-- When you have no other work and workers are still running, schedule a wake-up (`ScheduleWakeup`, 60 to 120 seconds) and check `status` when it fires. Stop scheduling when no workers are running.
-- When a worker is `done` or `failed`, read `result` and merge or report it in the same turn.
+Stop when it prints `no active workers`. Exit code 124 means it timed out with no event. Add `--timeout <seconds>` if you want it to give up.
+
+Don't wait for the user to tell you a worker finished. When a worker is `done` or `failed`, read `result` and merge or report it in the same turn.
 
 ## 7. Follow-up work
 
