@@ -10,6 +10,8 @@ pub trait HerdrCli {
 
 const DETECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const DETECT_POLL: std::time::Duration = std::time::Duration::from_millis(500);
+const SUBMIT_TIMEOUT_MS: &str = "30000";
+const SUBMIT_RETRIES: usize = 2;
 
 pub struct RealHerdr;
 
@@ -120,7 +122,7 @@ impl<C: HerdrCli> Herdr<C> {
             pane_command(spec, &w.session_id),
         ])?;
         self.wait_idle(pane)?;
-        self.cli.run(&args(&["agent", "prompt", pane, prompt]))?;
+        self.submit_prompt(pane, prompt)?;
         let title = format!("{} · {}", w.name, w.profiles.join("+"));
         self.cli.run(&args(&[
             "pane",
@@ -132,6 +134,44 @@ impl<C: HerdrCli> Herdr<C> {
             &title,
         ]))?;
         Ok(())
+    }
+
+    fn submit_prompt(&self, pane: &str, prompt: &str) -> Result<()> {
+        let first = self.cli.run(&args(&[
+            "agent",
+            "prompt",
+            pane,
+            prompt,
+            "--wait",
+            "--until",
+            "working",
+            "--timeout",
+            SUBMIT_TIMEOUT_MS,
+        ]));
+        match first {
+            Err(e) if is_stalled(&e) => {}
+            other => return other.map(|_| ()),
+        }
+        for _ in 0..SUBMIT_RETRIES {
+            self.cli
+                .run(&args(&["agent", "send-keys", pane, "enter"]))?;
+            let waited = self.cli.run(&args(&[
+                "agent",
+                "wait",
+                pane,
+                "--until",
+                "working",
+                "--timeout",
+                SUBMIT_TIMEOUT_MS,
+            ]));
+            match waited {
+                Err(e) if is_stalled(&e) => {}
+                other => return other.map(|_| ()),
+            }
+        }
+        bail!(
+            "prompt was typed but never submitted after {SUBMIT_RETRIES} Enter retries; worker did not start"
+        )
     }
 
     fn wait_idle(&self, pane: &str) -> Result<()> {
@@ -193,6 +233,13 @@ pub fn map_status(agent_status: &str) -> Observed {
     }
 }
 
+fn is_stalled(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<HerdrError>()
+            .is_some_and(|h| h.code == "agent_prompt_stalled" || h.code == "timeout")
+    })
+}
+
 fn is_gone(e: &anyhow::Error) -> bool {
     e.chain().any(|c| {
         c.downcast_ref::<HerdrError>()
@@ -228,7 +275,7 @@ impl<C: HerdrCli> Backend for Herdr<C> {
 
     fn send(&mut self, w: &mut WorkerState, _spec: &LaunchSpec, prompt: &str) -> Result<()> {
         let pane = Self::pane(w)?;
-        match self.cli.run(&args(&["agent", "prompt", pane, prompt])) {
+        match self.submit_prompt(pane, prompt) {
             Ok(_) => Ok(()),
             Err(e) if is_gone(&e) => bail!("pane closed: {e:#}"),
             Err(e) => Err(e),
@@ -294,6 +341,7 @@ mod tests {
         status: String,
         fail_code: Option<String>,
         fail_when: RefCell<Vec<(String, String)>>,
+        fail_times: RefCell<Vec<(String, String, usize)>>,
     }
 
     impl FakeHerdr {
@@ -304,11 +352,18 @@ mod tests {
                 status: "idle".into(),
                 fail_code: None,
                 fail_when: RefCell::new(vec![]),
+                fail_times: RefCell::new(vec![]),
             }
         }
 
         fn fail_on(&self, prefix: &str, code: &str) {
             self.fail_when.borrow_mut().push((prefix.into(), code.into()));
+        }
+
+        fn fail_n(&self, prefix: &str, code: &str, times: usize) {
+            self.fail_times
+                .borrow_mut()
+                .push((prefix.into(), code.into(), times));
         }
     }
 
@@ -322,6 +377,16 @@ mod tests {
                 .iter()
                 .find(|(prefix, _)| line.starts_with(prefix.as_str()))
                 .map(|(_, code)| code.clone());
+            let limited = self
+                .fail_times
+                .borrow_mut()
+                .iter_mut()
+                .find(|(prefix, _, left)| *left > 0 && line.starts_with(prefix.as_str()))
+                .map(|(_, code, left)| {
+                    *left -= 1;
+                    code.clone()
+                });
+            let matched = matched.or(limited);
             if let Some(code) = matched.or_else(|| self.fail_code.clone()) {
                 return Err(anyhow::Error::new(HerdrError {
                     code,
@@ -427,7 +492,10 @@ mod tests {
         );
         assert_eq!(calls[1], format!("pane run w9:p2 {}", pane_command(&spec(), "sess-1")));
         assert_eq!(calls[2], "agent wait w9:p2 --until idle --timeout 60000");
-        assert_eq!(calls[3], format!("agent prompt w9:p2 {prompt}"));
+        assert_eq!(
+            calls[3],
+            format!("agent prompt w9:p2 {prompt} --wait --until working --timeout 30000")
+        );
         assert_eq!(
             h.cli.calls.borrow()[3][3],
             prompt,
@@ -446,7 +514,63 @@ mod tests {
         let mut w = worker("a");
         w.pane_id = Some("w9:p2".into());
         h.send(&mut w, &spec(), "do it").unwrap();
-        assert_eq!(joined(&h), ["agent prompt w9:p2 do it"]);
+        assert_eq!(
+            joined(&h),
+            ["agent prompt w9:p2 do it --wait --until working --timeout 30000"]
+        );
+    }
+
+    #[test]
+    fn prompt_stall_then_enter_succeeds() {
+        let cli = FakeHerdr::new();
+        cli.fail_n("agent prompt", "agent_prompt_stalled", 1);
+        let mut h = Herdr::new(cli, "w9:p1".into());
+        let mut w = worker("a");
+        h.start(&mut w, &spec(), "task").unwrap();
+        let calls = joined(&h);
+        assert!(calls[3].starts_with("agent prompt w9:p2 task --wait"), "{calls:?}");
+        assert_eq!(calls[4], "agent send-keys w9:p2 enter");
+        assert_eq!(calls[5], "agent wait w9:p2 --until working --timeout 30000");
+        assert!(calls[6].starts_with("pane report-metadata"), "{calls:?}");
+        assert_eq!(w.pane_id.as_deref(), Some("w9:p2"));
+    }
+
+    #[test]
+    fn prompt_stall_persisting_fails_after_two_retries() {
+        let cli = FakeHerdr::new();
+        cli.fail_on("agent prompt", "agent_prompt_stalled");
+        cli.fail_on("agent wait w9:p2 --until working", "agent_prompt_stalled");
+        let mut h = Herdr::new(cli, "w9:p1".into());
+        let mut w = worker("a");
+        let err = format!("{:#}", h.start(&mut w, &spec(), "task").unwrap_err());
+        assert!(err.contains("never submitted"), "{err}");
+        let calls = joined(&h);
+        let enters = calls.iter().filter(|c| c.contains("send-keys w9:p2 enter")).count();
+        assert_eq!(enters, 2, "{calls:?}");
+        assert_eq!(calls.last().unwrap(), "pane close w9:p2");
+        assert!(w.pane_id.is_none());
+    }
+
+    #[test]
+    fn prompt_other_error_is_not_retried() {
+        let cli = FakeHerdr::new();
+        cli.fail_on("agent prompt", "agent_blocked");
+        let mut h = Herdr::new(cli, "w9:p1".into());
+        let mut w = worker("a");
+        let err = format!("{:#}", h.start(&mut w, &spec(), "task").unwrap_err());
+        assert!(err.contains("agent_blocked"), "{err}");
+        assert!(!joined(&h).iter().any(|c| c.contains("send-keys")));
+    }
+
+    #[test]
+    fn send_stall_then_enter_succeeds() {
+        let cli = FakeHerdr::new();
+        cli.fail_n("agent prompt", "agent_prompt_stalled", 1);
+        let mut h = Herdr::new(cli, "w9:p1".into());
+        let mut w = worker("a");
+        w.pane_id = Some("w9:p2".into());
+        h.send(&mut w, &spec(), "more").unwrap();
+        assert_eq!(joined(&h)[1], "agent send-keys w9:p2 enter");
     }
 
     #[test]
