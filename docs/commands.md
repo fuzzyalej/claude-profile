@@ -15,6 +15,7 @@ Commands:
   remove          Delete a personal profile or cloned pack
   new             Scaffold a new profile in ~/.claude-profiles/
   test            Run `claude plugin eval` against a plugin/skill target
+  try             Launch a throwaway session to try a plugin, marketplace, skill, or MCP server
   find            Search a local index of plugins across marketplaces
   self-uninstall  Remove the claude-profile binary (and optionally profile data)
   completions     Print a shell completion script, or write it to the standard location with --install
@@ -263,6 +264,102 @@ evaluator so you can test a plugin/skill without hand-writing the `claude` invoc
 - `--json`: forwarded to `claude plugin eval --json` for machine-readable output.
 - Anything after a literal `--` is forwarded to `claude plugin eval` unchanged (e.g. `claude-profile
   test my-skill -- --case "smoke*"`).
+
+## `try`
+
+```
+Usage: claude-profile try [OPTIONS] [TARGETS]... [-- <EXTRA>...]
+
+Arguments:
+  [TARGETS]...  What to try. Several targets combine into one temporary profile
+  [EXTRA]...    Extra args forwarded to claude after `--`
+
+Options:
+      --with <PROFILE>  Base the temporary profile on an existing profile. Repeat to combine several
+      --save <NAME>     Keep the generated profile as ~/.claude-profiles/<NAME>.json instead of deleting it
+      --dry-run         Print the generated profile JSON and exit without launching
+      --command <CMD>   Add a stdio MCP server started by this command line
+      --env <KEY=VAL>   Set an environment variable for the MCP servers this command adds. Repeatable
+      --yes             Skip the confirmation prompt
+```
+
+Launches a session with a temporary profile built from the targets, so you can test a plugin,
+marketplace, skill, or MCP server without writing a profile. When the session ends, the
+temporary profile and everything it vendored are deleted.
+
+```sh
+claude-profile try npm:@mobilenext/mobile-mcp       # an MCP server from npm
+claude-profile try obra/superpowers-marketplace     # every plugin in a marketplace
+claude-profile try superpowers@superpowers-marketplace --with rust-developer
+claude-profile try ./my-skill --dry-run             # print the profile, don't launch
+claude-profile try --command "uvx my-server" --env API_KEY=abc
+```
+
+### Targets
+
+Each target is classified by its spelling. The first matching rule wins:
+
+| Target | Treated as |
+| --- | --- |
+| `npm:<package>` | stdio MCP server: `npx -y <package>@latest`. A version in the package (`npm:foo@1.2`) is kept. |
+| `http:<url>` | HTTP MCP server at `<url>`, whatever the host. |
+| `https://…` or `http://…` | git repo when the host is `github.com`, `gitlab.com`, `bitbucket.org`, or `codeberg.org`, or the path ends in `.git`. Otherwise an HTTP MCP server. |
+| `git@…`, other `scheme://…` | git repo. |
+| `.`, `./…`, `../…`, `/…`, `~/…` | local directory. |
+| `<plugin>@<marketplace>` | that plugin. The marketplace must be defined by an available profile, listed in the [`find`](#find) index, or tried in the same call. |
+| `owner/repo[#ref]` | GitHub repo. |
+
+To reach an MCP endpoint on a git host, use `http:`, for example
+`http:https://api.github.com/mcp`.
+
+A git repo is cloned, then checked in this order. A local directory is checked the same way:
+
+1. `profile.json` or `profiles/*.json`: it's a profile repo. `try` stops and tells you to launch
+   it directly with `claude-profile <repo>`.
+2. `.claude-plugin/marketplace.json`: a marketplace. All its plugins load as
+   `plugin@marketplace`. For a local directory, plugins with relative sources load as plugin
+   directories.
+3. `.claude-plugin/plugin.json`: a plugin. The checkout loads as a plugin directory.
+4. `SKILL.md` at the root, or `skills/*/SKILL.md`: skills. They load the same way as vendored
+   personal skills, with a generated `.claude-plugin/plugin.json`. A local directory is copied
+   first, so your original stays unchanged.
+5. `package.json` with a `bin` field: a stdio MCP server, `npx -y <name>@latest`.
+6. Anything else fails. Use `npm:<package>` or `--command` instead.
+
+### Options
+
+- `--with <PROFILE>`: merges the targets on top of an existing profile, the same way a
+  combined launch merges profiles. Repeat it to combine several. Each value may be a profile
+  name or a repo reference.
+- `--save <NAME>`: writes the generated profile to `~/.claude-profiles/<NAME>.json`, keeps what
+  it vendored, and launches it. Checkouts that the profile loads as plugin directories are
+  kept under `~/.claude-profiles/store/<NAME>/repos/`. Fails if `<NAME>.json` already exists.
+  Can't be combined with `--dry-run`.
+- `--dry-run`: prints the generated profile JSON to stdout and exits. Nothing is vendored or
+  launched. Plugin directories that point into a clone refer to a temporary path that's
+  already deleted.
+- `--command "<cmd …>"`: adds a stdio MCP server started by this command line. Quote arguments
+  with `'` or `"`. Use it for servers `try` can't detect.
+- `--env KEY=VAL`: sets an environment variable on every stdio MCP server that this `try` adds
+  (`npm:`, detected `package.json`, and `--command`). Servers from `--with` profiles are
+  unchanged.
+- `--yes` and `-- <extra>`: work as they do for a normal launch.
+
+### Behavior
+
+- **Safety behavior:** before it fetches or runs anything, `try` prints every marketplace,
+  plugin, plugin directory, and MCP server it will load, including each server's full command
+  line or URL and the names of its environment variables, then asks for confirmation. `--yes`
+  skips the prompt.
+- **Writes:** the temporary profile is named `try-<id>` and lives in
+  `~/.claude-profiles/tmp/try-<id>/`, so it never shows in `list`. Plugins are vendored into
+  `~/.claude-profiles/store/try-<id>/` and pinned in `~/.claude-profiles/locks/try-<id>.lock`.
+  Marketplace and plugin clones that the session adds to `~/.claude-profiles/store/marketplaces/`
+  are removed with it. Clones that already existed are reused and kept.
+- **Cleanup:** `try` waits for `claude` to exit, then deletes everything above, also when
+  provisioning fails. Ctrl-C goes to `claude`, not to `try`. If `try` itself is killed, the
+  next `try` run removes what it left behind.
+- **Exit code:** `claude`'s own exit code.
 
 ## `find`
 

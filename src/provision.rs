@@ -81,6 +81,7 @@ fn vendor_loose_skill(name: &str, cwd: &Path, paths: &Paths, dest: &Path) -> any
 /// `marketplace.json`, then copy it in from either the marketplace clone
 /// (relative path) or a separately-cloned external repo (recording/refreshing its
 /// SHA in `lock.plugins` so it's tracked the same way marketplaces are).
+#[allow(clippy::too_many_arguments)]
 fn vendor_marketplace_entry<G: GitCli>(
     git: &G,
     paths: &Paths,

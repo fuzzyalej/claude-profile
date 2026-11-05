@@ -63,6 +63,56 @@ pub fn spawn(profile_name: &str, args: &[String]) -> anyhow::Result<i32> {
     Ok(status.code().unwrap_or(1))
 }
 
+/// Run `claude` as a child process and wait for it, so the caller can clean up after the
+/// session ends. The parent ignores SIGINT while waiting so Ctrl-C reaches only `claude`.
+pub fn run_and_wait(profile_name: &str, args: &[String]) -> anyhow::Result<i32> {
+    let mut child = crate::exe::command("claude")
+        .args(args)
+        .env("CLAUDE_PROFILE", profile_name)
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("failed to spawn claude: {e}"))?;
+    let _guard = interrupt::Ignore::install();
+    let status = child.wait().map_err(|e| anyhow::anyhow!("waiting for claude: {e}"))?;
+    Ok(status.code().unwrap_or(1))
+}
+
+#[cfg(unix)]
+mod interrupt {
+    const SIGINT: i32 = 2;
+    const SIG_IGN: usize = 1;
+
+    extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+
+    pub struct Ignore(usize);
+
+    impl Ignore {
+        pub fn install() -> Ignore {
+            Ignore(unsafe { signal(SIGINT, SIG_IGN) })
+        }
+    }
+
+    impl Drop for Ignore {
+        fn drop(&mut self) {
+            unsafe {
+                signal(SIGINT, self.0);
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+mod interrupt {
+    pub struct Ignore;
+
+    impl Ignore {
+        pub fn install() -> Ignore {
+            Ignore
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

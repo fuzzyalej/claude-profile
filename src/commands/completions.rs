@@ -181,7 +181,7 @@ const BASH: &str = r#"# claude-profile bash completion
 _claude_profile_complete() {
     local cur subcommands
     cur="${COMP_WORDS[COMP_CWORD]}"
-    subcommands="list show install update status remove new test find self-uninstall completions statusline"
+    subcommands="list show install update status remove new test try find self-uninstall completions statusline"
     if [ "$COMP_CWORD" -eq 1 ]; then
         COMPREPLY=( $(compgen -W "$subcommands $(claude-profile profile-names 2>/dev/null)" -- "$cur") )
         return
@@ -200,7 +200,7 @@ const ZSH: &str = r#"#compdef claude-profile
 
 _claude_profile() {
     local -a subcommands profiles
-    subcommands=(list show install update status remove new test find self-uninstall completions statusline)
+    subcommands=(list show install update status remove new test try find self-uninstall completions statusline)
     profiles=(${(f)"$(claude-profile profile-names 2>/dev/null)"})
 
     if (( CURRENT == 2 )); then
@@ -231,7 +231,7 @@ function __claude_profile_names
 end
 
 complete -c claude-profile -f
-complete -c claude-profile -n "__fish_use_subcommand" -a "list show install update status remove new test find self-uninstall completions statusline"
+complete -c claude-profile -n "__fish_use_subcommand" -a "list show install update status remove new test try find self-uninstall completions statusline"
 complete -c claude-profile -n "__fish_use_subcommand" -a "(__claude_profile_names)"
 complete -c claude-profile -n "__fish_seen_subcommand_from show remove" -a "(__claude_profile_names)"
 "#;
@@ -239,7 +239,7 @@ complete -c claude-profile -n "__fish_seen_subcommand_from show remove" -a "(__c
 const POWERSHELL: &str = r#"# claude-profile PowerShell completion
 Register-ArgumentCompleter -Native -CommandName claude-profile -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
-    $subcommands = 'list','show','install','update','status','remove','new','test','find','self-uninstall','completions','statusline'
+    $subcommands = 'list','show','install','update','status','remove','new','test','try','find','self-uninstall','completions','statusline'
     $tokens = $commandAst.CommandElements | ForEach-Object { $_.ToString() }
 
     $position = if ($wordToComplete -eq '') { $tokens.Count } else { $tokens.Count - 1 }

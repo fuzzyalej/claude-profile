@@ -70,11 +70,18 @@ pub fn fetch_ephemeral<G: GitCli>(git: &G, spec: &str) -> anyhow::Result<(tempfi
     let repo_ref = parse_repo_ref(spec)?;
     let tmp = tempfile::tempdir()?;
     let dest = tmp.path().join(repo_ref.pack_dir_name());
-    git.clone(&repo_ref.clone_url(), &dest)?;
-    if let Some(ref r) = repo_ref.git_ref {
-        git.checkout(&dest, r)?;
-    }
+    fetch_into(git, spec, &dest)?;
     Ok((tmp, dest))
+}
+
+/// Clone a repo reference into `dest` and check out its `#ref`, if any.
+pub fn fetch_into<G: GitCli>(git: &G, spec: &str, dest: &Path) -> anyhow::Result<()> {
+    let repo_ref = parse_repo_ref(spec)?;
+    git.clone(&repo_ref.clone_url(), dest)?;
+    if let Some(ref r) = repo_ref.git_ref {
+        git.checkout(dest, r)?;
+    }
+    Ok(())
 }
 
 // The caller (`main::handle_update`) no longer prints these names — it reports

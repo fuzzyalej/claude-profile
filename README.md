@@ -150,6 +150,7 @@ claude-profile list                    # profiles and where they come from (bund
 claude-profile status                  # what's vendored per profile
 claude-profile remove rust-developer   # delete a profile and its vendored plugins/skills
 claude-profile find python             # discover plugins to add to a profile
+claude-profile try npm:@mobilenext/mobile-mcp  # try an MCP server, plugin, or skill without a profile
 ```
 
 Not sure what to put in a profile? `claude-profile find python` searches a local,
@@ -193,6 +194,19 @@ claude-profile <profile-name>       # launch the one you want
 ```
 
 See [Command reference](docs/commands.md) for `install`, `show`, and pack update semantics.
+
+## Try before you write a profile
+
+`try` launches a throwaway session from a plugin, marketplace, skill, or MCP server. The
+temporary profile is deleted when the session ends:
+
+```sh
+claude-profile try owner/some-plugin                   # a plugin, marketplace, or skill repo
+claude-profile try npm:@mobilenext/mobile-mcp --dry-run  # print the profile it would use
+claude-profile try ./my-skill --save my-skill          # keep it as a real profile
+```
+
+See [`try`](docs/commands.md#try) for target detection and flags.
 
 ## Coordinate many sessions
 

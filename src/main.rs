@@ -78,6 +78,34 @@ enum Command {
         #[arg(last = true)]
         extra: Vec<String>,
     },
+    /// Launch a throwaway session to try a plugin, marketplace, skill, or MCP server. Each
+    /// TARGET is owner/repo[#ref], a git or MCP URL, npm:<package>, http:<url>,
+    /// plugin@marketplace, or a local path.
+    Try {
+        /// What to try. Several targets combine into one temporary profile.
+        targets: Vec<String>,
+        /// Base the temporary profile on an existing profile. Repeat to combine several.
+        #[arg(long = "with", value_name = "PROFILE")]
+        with: Vec<String>,
+        /// Keep the generated profile as ~/.claude-profiles/<NAME>.json instead of deleting it.
+        #[arg(long, value_name = "NAME", conflicts_with = "dry_run")]
+        save: Option<String>,
+        /// Print the generated profile JSON and exit without launching.
+        #[arg(long)]
+        dry_run: bool,
+        /// Add a stdio MCP server started by this command line.
+        #[arg(long, value_name = "CMD")]
+        command: Option<String>,
+        /// Set an environment variable for the MCP servers this command adds. Repeatable.
+        #[arg(long = "env", value_name = "KEY=VAL")]
+        env: Vec<String>,
+        /// Skip the confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+        /// Extra args forwarded to claude after `--`.
+        #[arg(last = true)]
+        extra: Vec<String>,
+    },
     /// Search a local index of plugins across marketplaces. Returns profile-ready
     /// `plugin@marketplace` ids. First run auto-syncs; use --sync to rebuild.
     Find {
@@ -246,6 +274,12 @@ fn dispatch_command(
         Command::Test { target, json, extra } => commands::test::run(&target, json, &extra),
         Command::Find { query, sync, refresh_seeds, json, limit, marketplace } => {
             commands::find::run(paths, &query, sync, refresh_seeds, json, limit, marketplace.as_deref())
+        }
+        Command::Try { targets, with, save, dry_run, command, env: env_vars, yes, extra } => {
+            let opts = commands::try_profile::Options {
+                targets, with, save, dry_run, command, env: env_vars, yes, extra,
+            };
+            commands::try_profile::run(&opts, paths, cwd, env, bundled)
         }
         Command::SelfUninstall { purge } => {
             commands::self_uninstall::run(paths, purge)?;
@@ -501,7 +535,7 @@ pub(crate) fn prepare_profiles(
 
 /// Provision the profile (cloning marketplaces / prompting as needed), pin its marketplaces
 /// into `lock_file`, and vendor plugins against the pinned checkout.
-fn provision_and_pin(
+pub(crate) fn provision_and_pin(
     profile: &profile::Profile,
     key: &str,
     lock_file: &std::path::Path,

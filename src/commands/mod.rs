@@ -12,3 +12,4 @@ pub mod new;
 pub mod self_uninstall;
 pub mod statusline;
 pub mod test;
+pub mod try_profile;

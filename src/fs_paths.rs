@@ -69,6 +69,10 @@ impl Paths {
         self.user_profiles_dir().join("bundled-plugins")
     }
 
+    pub fn try_sessions_dir(&self) -> PathBuf {
+        self.user_profiles_dir().join("tmp")
+    }
+
     pub fn index_cache_dir(&self) -> PathBuf {
         self.user_profiles_dir().join(".index-cache")
     }
@@ -169,6 +173,12 @@ mod tests {
             p.profile_vendor_dir("rust-developer"),
             PathBuf::from("/h/.claude-profiles/store/rust-developer/vendor")
         );
+    }
+
+    #[test]
+    fn derives_try_sessions_dir() {
+        let p = Paths::from_home(PathBuf::from("/h"));
+        assert_eq!(p.try_sessions_dir(), PathBuf::from("/h/.claude-profiles/tmp"));
     }
 
     #[test]
