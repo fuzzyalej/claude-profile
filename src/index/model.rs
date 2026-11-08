@@ -25,6 +25,8 @@ struct PluginEntry {
     description: Option<String>,
     #[serde(default)]
     category: Option<String>,
+    #[serde(default)]
+    source: Option<serde_json::Value>,
 }
 
 pub fn normalize_manifest(json: &str, repo: &str) -> anyhow::Result<Vec<IndexEntry>> {
@@ -35,6 +37,7 @@ pub fn normalize_manifest(json: &str, repo: &str) -> anyhow::Result<Vec<IndexEnt
     let entries = m
         .plugins
         .into_iter()
+        .filter(|p| !p.source.as_ref().is_some_and(crate::vendor::is_command_source))
         .filter_map(|p| {
             let plugin = p.name?;
             Some(IndexEntry {
@@ -76,6 +79,17 @@ mod tests {
         // marketplace repo wins even when the plugin points elsewhere:
         assert_eq!(entries[1].repo, "anthropics/claude-plugins-official");
         assert_eq!(entries[1].category, None);
+    }
+
+    #[test]
+    fn skips_command_sourced_plugins() {
+        let j = r#"{ "name": "official", "plugins": [
+            { "name": "normal", "description": "d", "source": "./plugins/normal" },
+            { "name": "xcode", "description": "d", "source": { "source": "command", "command": "xcrun agent plugin path --plugin xcode" } }
+        ] }"#;
+        let entries = normalize_manifest(j, "anthropics/claude-plugins-official").unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].plugin, "normal");
     }
 
     #[test]

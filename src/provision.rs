@@ -95,8 +95,7 @@ fn vendor_marketplace_entry<G: GitCli>(
     let mkt_dir = paths.marketplace_clone_dir(marketplace);
     let manifest_body = std::fs::read_to_string(mkt_dir.join(".claude-plugin").join("marketplace.json"))
         .map_err(|e| anyhow::anyhow!("reading marketplace.json for '{marketplace}': {e}"))?;
-    let plugins = vendor::parse_marketplace_json(&manifest_body)?;
-    let entry = vendor::find_plugin(&plugins, name)?;
+    let entry = vendor::find_plugin_in_manifest(&manifest_body, name)?;
 
     match &entry.source {
         PluginSource::RelativePath(rel) => {

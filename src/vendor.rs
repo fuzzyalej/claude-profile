@@ -36,6 +36,9 @@ pub fn parse_marketplace_json(body: &str) -> anyhow::Result<Vec<MarketplacePlugi
         let source = p
             .get("source")
             .ok_or_else(|| anyhow::anyhow!("plugin '{name}' missing 'source'"))?;
+        if is_command_source(source) {
+            continue;
+        }
         let parsed = match source {
             Value::String(s) => PluginSource::RelativePath(s.clone()),
             Value::Object(o) => parse_object_source(name, o, source)?,
@@ -44,6 +47,12 @@ pub fn parse_marketplace_json(body: &str) -> anyhow::Result<Vec<MarketplacePlugi
         out.push(MarketplacePlugin { name: name.to_string(), source: parsed });
     }
     Ok(out)
+}
+
+/// True for `{"source":"command", ...}` plugin sources, which resolve their content by
+/// running a local command. These are not supported and are skipped when parsing.
+pub fn is_command_source(source: &Value) -> bool {
+    source.get("source").and_then(Value::as_str) == Some("command")
 }
 
 fn parse_object_source(
@@ -73,6 +82,29 @@ pub fn find_plugin<'a>(plugins: &'a [MarketplacePlugin], name: &str) -> anyhow::
         .iter()
         .find(|p| p.name == name)
         .ok_or_else(|| anyhow::anyhow!("plugin '{name}' not found in marketplace"))
+}
+
+/// Parse `body` and find plugin `name`. When the plugin exists but is command-sourced,
+/// the error says so instead of reporting it as missing.
+pub fn find_plugin_in_manifest(body: &str, name: &str) -> anyhow::Result<MarketplacePlugin> {
+    let plugins = parse_marketplace_json(body)?;
+    if let Ok(found) = find_plugin(&plugins, name) {
+        return Ok(found.clone());
+    }
+    let v: Value = serde_json::from_str(body)?;
+    let command_sourced = v
+        .get("plugins")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|p| {
+            p.get("name").and_then(Value::as_str) == Some(name)
+                && p.get("source").is_some_and(is_command_source)
+        });
+    if command_sourced {
+        anyhow::bail!("plugin '{name}' uses a command source, which is not supported");
+    }
+    anyhow::bail!("plugin '{name}' not found in marketplace")
 }
 
 #[cfg(test)]
@@ -107,6 +139,30 @@ mod tests {
         assert_eq!(plugins[0].source, PluginSource::RelativePath("./skills/design-extractor".into()));
         assert_eq!(plugins[1].name, "openpowers");
         assert_eq!(plugins[1].source, PluginSource::ExternalRepo { repo: "fuzzyalej/openpowers".into() });
+    }
+
+    const COMMAND_SOURCE_JSON: &str = r#"{
+      "plugins": [
+        { "name": "normal", "source": "./plugins/normal" },
+        { "name": "xcode", "source": { "source": "command", "command": "xcrun agent plugin path --plugin xcode" } }
+      ]
+    }"#;
+
+    #[test]
+    fn skips_command_sourced_plugins() {
+        let plugins = parse_marketplace_json(COMMAND_SOURCE_JSON).unwrap();
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].name, "normal");
+    }
+
+    #[test]
+    fn find_plugin_in_manifest_explains_command_source() {
+        let found = find_plugin_in_manifest(COMMAND_SOURCE_JSON, "normal").unwrap();
+        assert_eq!(found.source, PluginSource::RelativePath("./plugins/normal".into()));
+        let err = find_plugin_in_manifest(COMMAND_SOURCE_JSON, "xcode").unwrap_err().to_string();
+        assert!(err.contains("command source"), "{err}");
+        let err = find_plugin_in_manifest(COMMAND_SOURCE_JSON, "nope").unwrap_err().to_string();
+        assert!(err.contains("not found"), "{err}");
     }
 
     #[test]
