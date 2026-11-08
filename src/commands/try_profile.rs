@@ -1378,7 +1378,7 @@ mod tests {
         );
         let d = f.resolve(&["./mkt"]).unwrap();
         assert!(d.marketplaces.is_empty());
-        assert!(d.plugin_dirs[0].ends_with("plugins/a"));
+        assert!(Path::new(&d.plugin_dirs[0]).ends_with(Path::new("plugins").join("a")));
     }
 
     #[test]
